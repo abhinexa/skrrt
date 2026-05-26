@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Smart Factory — Supervisor Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+body { overflow-y: auto; }
+#app { display: flex; flex-direction: column; min-height: 100vh; }
+#content { flex: 1; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+
+/* ── Layout rows ─────────────────────────────────────────────── */
+.row-top    { display: grid; grid-template-columns: 2fr 1fr;     gap: 14px; }
+.row-mid    { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+.row-bottom { display: grid; grid-template-columns: 2fr 1fr;     gap: 14px; }
+.row-ai     { display: grid; grid-template-columns: 1fr 1fr;     gap: 14px; }
+
+/* ── Heatmap canvas ──────────────────────────────────────────── */
+#heatmapCanvas {
+  display: block; width: 100%; border-radius: 4px;
+  cursor: pointer;
+}
+
+/* ── Zone Risk Card ──────────────────────────────────────────── */
+.zrc {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 7px; padding: 12px; position: relative;
+  overflow: hidden; transition: border-color .3s;
+}
+.zrc::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  border-radius: 7px; opacity: 0; transition: opacity .3s;
+}
+.zrc.warn  { border-color: var(--warn); }
+.zrc.warn::before  { background: var(--warn-bg); opacity: 1; }
+.zrc.danger{ border-color: var(--danger); }
+.zrc.danger::before{ background: var(--danger-bg); opacity: 1;
+  animation: zone-flash .8s ease-in-out infinite; }
+.zrc-name  { font-size: 10px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color: var(--text2); margin-bottom: 5px; }
+.zrc-score { font-family: var(--mono); font-size: 32px; line-height:1; transition: color .3s; }
+.zrc-bar   { height: 3px; border-radius:2px; background:var(--border); overflow:hidden; margin: 5px 0 4px; }
+.zrc-fill  { height:100%; border-radius:2px; transition: width .4s, background .3s; }
+.zrc-state { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; }
+.zrc-env   { font-size:9px; color:var(--text2); font-family:var(--mono); margin-top:2px; }
+canvas.sparkline { height: 30px !important; width: 100% !important; margin-top:6px; }
+
+/* ── Chart wrap ──────────────────────────────────────────────── */
+.chart-wrap { position: relative; width: 100%; }
+
+/* ── Worker card ─────────────────────────────────────────────── */
+.worker-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 5px;
+}
+.wc-head { display: flex; align-items:center; gap: 8px; }
+.wc-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--bg3); border: 2px solid var(--border2);
+  display: flex; align-items:center; justify-content:center; font-size: 14px;
+}
+.wc-name { font-size: 12px; font-weight: 600; }
+.wc-zone { font-size: 10px; color: var(--text2); }
+.wc-bar  { height: 3px; border-radius:2px; background:var(--border); overflow:hidden; }
+.wc-fill { height:100%; border-radius:2px; transition: width .5s, background .5s; }
+
+/* ── System Stat rows ────────────────────────────────────────── */
+.stat-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:10px; }
+.stat-card {
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:6px; padding:10px;
+}
+.sc-val { font-family:var(--mono); font-size:22px; }
+.sc-lbl { font-size:9px; text-transform:uppercase; letter-spacing:.8px; color:var(--text2); margin-top:2px; }
+
+/* ── AI Panel ────────────────────────────────────────────────── */
+.ai-outer { background: var(--panel); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.ai-head {
+  padding: 9px 14px; border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.ai-head-left  { display:flex; align-items:center; gap:8px; }
+.ai-head-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:var(--cyan); }
+.ai-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.ai-section-title {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text2); margin-bottom: 5px;
+}
+.ai-explain-box {
+  background: rgba(0,212,255,.04); border:1px solid rgba(0,212,255,.1);
+  border-radius:5px; padding:10px 12px; font-size:11px; line-height:1.7; color:var(--text1);
+  min-height: 50px;
+}
+.ai-actions-list { list-style: none; display:flex; flex-direction:column; gap:4px; }
+.ai-actions-list li {
+  display:flex; align-items:flex-start; gap:7px;
+  padding: 6px 10px; border-radius:4px;
+  background: rgba(0,230,118,.06); border: 1px solid rgba(0,230,118,.15);
+  font-size: 11px; color: var(--text1); line-height: 1.5;
+}
+.ai-actions-list li .act-num {
+  font-family:var(--mono); font-size:9px; font-weight:700;
+  color:var(--safe); min-width:16px; margin-top:2px;
+}
+.ai-alert-box {
+  background: rgba(255,23,68,.06); border:1px solid rgba(255,23,68,.2);
+  border-radius:5px; padding:8px 12px; font-size:11px;
+  color: var(--danger); line-height:1.5;
+}
+.ai-alert-box.safe { background:rgba(0,230,118,.06); border-color:rgba(0,230,118,.2); color:var(--safe); }
+.ai-alert-box.warn { background:var(--warn-bg); border-color:rgba(255,171,0,.3); color:var(--warn); }
+.ai-thinking { color:var(--text3); font-style:italic; font-size:11px; display:flex; align-items:center; gap:6px; }
+.spinner {
+  width:12px; height:12px; border:1.5px solid var(--border);
+  border-top-color:var(--cyan); border-radius:50%;
+  animation: spin .6s linear infinite; flex-shrink:0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .row-top, .row-bottom, .row-ai { grid-template-columns: 1fr; }
+  .row-mid { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<div id="alarm-overlay"></div>
+
+<div id="app">
+
+  <!-- Header -->
+  <header class="page-header">
+    <div class="logo">
+      <div class="logo-hex">⬡</div>
+      <div>
+        <div class="logo-text">Adaptive Safety Digital Twin</div>
+        <div class="logo-sub">Supervisor Dashboard &amp; AI Analysis</div>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="/" class="nav-link">3D Simulation</a>
+      <a href="/dashboard" class="nav-link active">Supervisor Dashboard</a>
+    </nav>
+    <div class="header-right" style="display:flex;align-items:center;gap:10px;">
+      <div class="vent-chip off" id="hdr-vent"><span>○</span> VENT OFF</div>
+      <div class="status-chip safe" id="hdr-status">
+        <span class="chip-dot pulse" id="hdr-dot"></span>
+        <span id="hdr-text">SYSTEM SAFE</span>
+      </div>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text2)" id="live-time">--:--:--</span>
+    </div>
+  </header>
+
+  <div id="content">
+
+    <!-- ── Row: Zone KPI cards ──────────────────────────────── -->
+    <div class="row-mid" id="zone-cards"></div>
+
+    <!-- ── Row: Heatmap + Alert Feed ──────────────────────────── -->
+    <div class="row-top">
+
+      <!-- Digital Twin Heatmap -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">⬡ Zone Risk Heatmap — Digital Twin</span>
+          <span class="panel-badge" id="hm-tick">T+0s</span>
+        </div>
+        <div class="panel-body" style="padding:10px;">
+          <canvas id="heatmapCanvas" height="280"></canvas>
+        </div>
+      </div>
+
+      <!-- Alert Feed + Stat Cards -->
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="stat-row" id="stat-row"></div>
+
+        <div class="panel" style="flex:1;">
+          <div class="panel-head">
+            <span class="panel-title">⬡ Alert Feed</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span class="panel-badge" id="alert-count">0</span>
+              <button class="btn" onclick="clearAlerts()">Clear</button>
+            </div>
+          </div>
+          <div class="alerts-list" id="alerts-list">
+            <div class="alerts-empty">No active alerts</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Row: Trend chart + Worker profiles ─────────────────── -->
+    <div class="row-bottom">
+
+      <!-- Risk Trend Chart -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">⬡ Risk Trend — All Zones (5-min window)</span>
+          <div style="display:flex;gap:10px;font-size:10px;align-items:center;">
+            <span style="color:#1e6aff">● Zone A</span>
+            <span style="color:#ff5533">● Zone B</span>
+            <span style="color:#00cc55">● Zone C</span>
+            <span style="color:#aa55ff">● Zone D</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap" style="height:220px;">
+            <canvas id="trendChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Worker Risk Profiles -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">⬡ Worker Risk Profiles</span>
+          <span class="panel-badge">Simulated</span>
+        </div>
+        <div class="panel-body" style="display:flex;flex-direction:column;gap:7px;" id="workers-panel"></div>
+      </div>
+    </div>
+
+    <!-- ── Row: AI Analysis ────────────────────────────────────── -->
+    <div class="row-ai">
+
+      <!-- Contribution Radar / Bar -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">⬡ Sensor Contribution Analysis</span>
+          <div style="display:flex;gap:6px;">
+            <select id="contrib-zone-sel" class="btn" style="cursor:pointer;font-family:var(--mono);">
+              <option value="A">Zone A</option>
+              <option value="B" selected>Zone B</option>
+              <option value="C">Zone C</option>
+              <option value="D">Zone D</option>
+            </select>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap" style="height:220px;">
+            <canvas id="contribChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Risk Component Breakdown -->
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">⬡ Risk Decomposition</span>
+          <span class="panel-badge">Two-Layer Model</span>
+        </div>
+        <div class="panel-body">
+          <div id="decomp-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Row: Gemini AI Safety Advisor ─────────────────────── -->
+    <div class="ai-outer">
+      <div class="ai-head">
+        <div class="ai-head-left">
+          <span class="ai-head-title">⬡ AI Safety Advisor</span>
+          <span class="ai-badge">GEMINI</span>
+          <span style="font-size:10px;color:var(--text2)">— Natural language risk analysis & recommendations</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="ai-zone-sel" class="btn" style="cursor:pointer;font-family:var(--mono);">
+            <option value="A">Zone A</option>
+            <option value="B" selected>Zone B</option>
+            <option value="C">Zone C</option>
+            <option value="D">Zone D</option>
+          </select>
+          <button class="btn active" id="ai-analyze-btn" onclick="runGeminiAnalysis()">
+            ⚡ Analyze Risk
+          </button>
+          <button class="btn" id="ai-auto-btn" onclick="toggleAutoAI()">
+            Auto: OFF
+          </button>
+        </div>
+      </div>
+      <div class="ai-body">
+        <!-- Alert Message -->
+        <div>
+          <div class="ai-section-title">🔴 Safety Alert</div>
+          <div class="ai-alert-box safe" id="ai-alert">Awaiting analysis...</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <!-- Explanation -->
+          <div>
+            <div class="ai-section-title">📋 Risk Explanation</div>
+            <div class="ai-explain-box" id="ai-explain">
+              <span class="ai-thinking">Click "Analyze Risk" to generate AI explanation.</span>
+            </div>
+          </div>
+          <!-- Actions -->
+          <div>
+            <div class="ai-section-title">🛠 Recommended Actions</div>
+            <ul class="ai-actions-list" id="ai-actions">
+              <li><span class="act-num">—</span> No recommendations yet.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /app -->
+
+<!-- ── Scripts ────────────────────────────────────────────────── -->
+<script src="/static/scripts.js"></script>
+<script>
+'use strict';
+
+/* ================================================================
+   GEMINI API KEY (Replace with your actual key)
+   ================================================================ */
+const GEMINI_API_KEY = 'AIzaSyCmnge11kuE2QWmj_2OHYcpklDqq0QUcf8';
+const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+/* ================================================================
+   ZONE SIMULATOR (auto-generates realistic sensor data)
+   ================================================================ */
+const ZONE_BASELINES = {
+  A: { temperature:22, humidity:55, gas:25,  air_quality:40,  radiation:.08, vibration:.4, machine_load:30, noise:58,  pressure:101, motion:false, worker_density:2, fatigue:1.5, forklift:1,   door_state:false, ventilation:90 },
+  B: { temperature:44, humidity:62, gas:120, air_quality:160, radiation:.25, vibration:2.5,machine_load:82, noise:88,  pressure:103, motion:true,  worker_density:8, fatigue:5,   forklift:4.5, door_state:false, ventilation:70 },
+  C: { temperature:30, humidity:58, gas:55,  air_quality:90,  radiation:.12, vibration:1.2,machine_load:65, noise:72,  pressure:102, motion:true,  worker_density:6, fatigue:3.5, forklift:2.5, door_state:false, ventilation:82 },
+  D: { temperature:21, humidity:48, gas:15,  air_quality:30,  radiation:.05, vibration:.2, machine_load:18, noise:44,  pressure:101, motion:false, worker_density:1, fatigue:1,   forklift:.5,  door_state:false, ventilation:95 },
+};
+
+const zoneSensors   = {};
+const zoneRisk      = {};
+const prevZoneState = { A:'SAFE', B:'SAFE', C:'SAFE', D:'SAFE' };
+let tick = 0;
+let spikeZone = null, spikeTimer = 0;
+
+['A','B','C','D'].forEach(z => { zoneSensors[z] = { ...ZONE_BASELINES[z] }; });
+
+function noisy(v, std, lo, hi) {
+  return Math.max(lo, Math.min(hi, v + gaussNoise(std)));
+}
+
+function autoSimTick() {
+  tick++;
+  // Random spike event
+  if (!spikeZone && Math.random() < 0.003) {
+    spikeZone = ['A','B','C','D'][Math.floor(Math.random()*4)];
+    spikeTimer = Math.floor(Math.random()*20) + 12;
+  }
+  if (spikeZone && --spikeTimer <= 0) spikeZone = null;
+
+  ['A','B','C','D'].forEach(z => {
+    const s  = zoneSensors[z];
+    const bl = ZONE_BASELINES[z];
+    const isSpike = (spikeZone === z);
+    const sf = isSpike ? Math.sin(Math.PI * (1 - spikeTimer / 20)) * 1.5 : 0;
+
+    s.temperature    = noisy(s.temperature,    .35,  10, 90);
+    s.humidity       = noisy(s.humidity,        .5,  20, 95);
+    s.gas            = noisy(s.gas + sf*80,     8,    0, 850);
+    s.air_quality    = noisy(s.air_quality + sf*50, 4, 10, 450);
+    s.radiation      = noisy(s.radiation,       .02,  0, 9);
+    s.vibration      = noisy(s.vibration,       .12,  0, 9);
+    s.machine_load   = noisy(s.machine_load,    1.5,  0, 100);
+    s.noise          = noisy(s.noise,           1.2, 30, 115);
+    s.pressure       = noisy(s.pressure,        .2,  98, 108);
+    s.worker_density = noisy(s.worker_density,  .1,   0, 18);
+    s.fatigue        = noisy(s.fatigue,         .08,  0, 9);
+    s.forklift       = noisy(s.forklift,        .1,   0, 9);
+    if (Math.random() < 0.01) s.motion     = !s.motion;
+    if (Math.random() < .005) s.door_state = !s.door_state;
+    if (s.gas > 450) s.ventilation = Math.min(100, s.ventilation + 2);
+    else s.ventilation = noisy(s.ventilation, .4, 40, 100);
+  });
+}
+
+/* ================================================================
+   BACKEND POLLING
+   ================================================================ */
+async function pollAllZones() {
+  autoSimTick();
+  const payload = { zones: zoneSensors };
+  try {
+    const res  = await fetch('/update-all', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    ['A','B','C','D'].forEach(z => {
+      if (data[z]) {
+        zoneRisk[z] = data[z];
+        updateZoneCard(z, data[z]);
+        pushHistory(z, data[z].risk_score, data[z].risk_state);
+        checkAlert(z, data[z]);
+      }
+    });
+    updateHeatmap();
+    updateTrendChart();
+    updateWorkerCards();
+    updateStatRow();
+    updateDecomp();
+    updateContribChart();
+    // Global alarm
+    const anyDanger = Object.values(zoneRisk).some(r => r?.risk_state === 'DANGER');
+    document.getElementById('alarm-overlay').className = anyDanger ? 'active' : '';
+    updateHeaderStatus();
+  } catch(e) {}
+
+  document.getElementById('live-time').textContent = timeStr();
+  document.getElementById('hm-tick').textContent   = `T+${tick}s`;
+}
+
+/* ================================================================
+   ZONE CARDS
+   ================================================================ */
+function buildZoneCards() {
+  const con = document.getElementById('zone-cards');
+  ['A','B','C','D'].forEach(z => {
+    con.innerHTML += `
+      <div class="zrc" id="zrc-${z}">
+        <div class="zrc-name">Zone ${z}</div>
+        <div class="zrc-score" id="zrc-score-${z}">—</div>
+        <div class="zrc-bar"><div class="zrc-fill" id="zrc-fill-${z}"></div></div>
+        <div class="zrc-state" id="zrc-state-${z}">—</div>
+        <div class="zrc-env"   id="zrc-env-${z}">R_env — · Amp —×</div>
+        <canvas class="sparkline" id="spark-${z}"></canvas>
+      </div>`;
+  });
+}
+
+buildZoneCards();
+
+// Sparkline charts
+const sparkCharts = {};
+['A','B','C','D'].forEach(z => {
+  const ZONE_COLS = {A:'#1e6aff',B:'#ff5533',C:'#00cc55',D:'#aa55ff'};
+  sparkCharts[z] = new Chart(document.getElementById('spark-'+z), {
+    type: 'line',
+    data: { labels:[], datasets:[{ data:[], borderColor: ZONE_COLS[z], borderWidth:1.5,
+      pointRadius:0, tension:.3, fill:true,
+      backgroundColor: ZONE_COLS[z].replace(')',', 0.12)').replace('rgb','rgba') || ZONE_COLS[z]+'20' }] },
+    options: { responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{legend:{display:false}}, scales:{ x:{display:false}, y:{display:false,min:0,max:1} } },
+  });
+});
+
+function updateZoneCard(z, data) {
+  const sc  = data.risk_score;
+  const st  = data.risk_state;
+  const col = riskColor(sc);
+  const card = document.getElementById('zrc-'+z);
+  if (!card) return;
+  card.className = 'zrc ' + riskClass(st);
+  document.getElementById('zrc-score-'+z).textContent  = fmt3(sc);
+  document.getElementById('zrc-score-'+z).style.color  = col;
+  document.getElementById('zrc-state-'+z).textContent  = st;
+  document.getElementById('zrc-state-'+z).style.color  = col;
+  document.getElementById('zrc-fill-'+z).style.width   = sc*100+'%';
+  document.getElementById('zrc-fill-'+z).style.background = col;
+  document.getElementById('zrc-env-'+z).textContent =
+    `R_env ${fmt3(data.risk_env)} · Amp ${data.amplification}×`;
+  // Sparkline
+  const sc2 = sparkCharts[z];
+  sc2.data.labels.push('');
+  sc2.data.datasets[0].data.push(sc);
+  if (sc2.data.labels.length > 40) { sc2.data.labels.shift(); sc2.data.datasets[0].data.shift(); }
+  sc2.update();
+}
+
+/* ================================================================
+   HEATMAP
+   ================================================================ */
+const hmCanvas = document.getElementById('heatmapCanvas');
+const hmCtx    = hmCanvas.getContext('2d');
+
+const HM_ZONES = {
+  A: { x:10,  y:10,  w:290, h:125 },
+  B: { x:320, y:10,  w:290, h:125 },
+  C: { x:10,  y:150, w:290, h:120 },
+  D: { x:320, y:150, w:290, h:120 },
+};
+const HM_ZONE_META = { A:'Storage', B:'Manufacturing', C:'Assembly', D:'Control' };
+
+function updateHeatmap() {
+  const W = hmCanvas.width, H = hmCanvas.height;
+  hmCtx.clearRect(0,0,W,H);
+  hmCtx.fillStyle = '#0c1020';
+  hmCtx.fillRect(0,0,W,H);
+
+  ['A','B','C','D'].forEach(z => {
+    const d  = zoneRisk[z] || {};
+    const sc = d.risk_score || 0;
+    const {x,y,w,h} = HM_ZONES[z];
+
+    // Interpolate colour: green→yellow→red
+    let r,g,b;
+    if (sc < 0.5) { const t=sc/0.5; r=Math.round(t*255); g=220; b=0; }
+    else           { const t=(sc-.5)/.5; r=255; g=Math.round(220*(1-t)); b=0; }
+    const col = `rgb(${r},${g},${b})`;
+    const alpha = 0.15 + sc * 0.55;
+
+    // Radial gradient fill
+    const grd = hmCtx.createRadialGradient(x+w/2,y+h/2,4,x+w/2,y+h/2,Math.max(w,h)*.7);
+    grd.addColorStop(0, `rgba(${r},${g},${b},${alpha})`);
+    grd.addColorStop(1, `rgba(${r},${g},${b},.03)`);
+    hmCtx.fillStyle = grd;
+    hmCtx.beginPath(); hmCtx.roundRect(x+2,y+2,w-4,h-4,5); hmCtx.fill();
+
+    // Border
+    hmCtx.strokeStyle = `rgba(${r},${g},${b},${.3+sc*.5})`;
+    hmCtx.lineWidth   = 1.5;
+    hmCtx.beginPath(); hmCtx.roundRect(x+2,y+2,w-4,h-4,5); hmCtx.stroke();
+
+    // Zone label
+    hmCtx.fillStyle = '#6a8aaa';
+    hmCtx.font = 'bold 10px "Exo 2", sans-serif';
+    hmCtx.fillText(`ZONE ${z} — ${HM_ZONE_META[z]}`, x+10, y+18);
+
+    // Score
+    hmCtx.font = `bold 28px "Share Tech Mono", monospace`;
+    hmCtx.fillStyle = col;
+    hmCtx.textAlign = 'center';
+    hmCtx.fillText(fmt3(sc), x+w/2, y+h/2+8);
+
+    // State
+    hmCtx.font = 'bold 10px "Exo 2", sans-serif';
+    hmCtx.fillStyle = col;
+    hmCtx.fillText(d.risk_state || '—', x+w/2, y+h/2+24);
+    hmCtx.textAlign = 'left';
+
+    // Mini sensor bar — top 3 sensors
+    const contribs = (d.contributions||[]).slice(0,3);
+    contribs.forEach((c,i) => {
+      const bx=x+8, by=y+h-22+(i*7);
+      hmCtx.fillStyle = 'rgba(30,46,74,.8)';
+      hmCtx.fillRect(bx, by, w-16, 4);
+      const bw = Math.min(Math.abs(c.contribution||0)/0.2*(w-16), w-16);
+      hmCtx.fillStyle = `rgba(${r},${g},${b},.7)`;
+      hmCtx.fillRect(bx, by, bw, 4);
+    });
+  });
+
+  // Colour legend
+  const lx=W/2-90, ly=H-12, lw=180, lh=7;
+  const lg = hmCtx.createLinearGradient(lx,0,lx+lw,0);
+  lg.addColorStop(0,'#00e676'); lg.addColorStop(.5,'#ffab00'); lg.addColorStop(1,'#ff1744');
+  hmCtx.fillStyle=lg;
+  hmCtx.beginPath(); hmCtx.roundRect(lx,ly,lw,lh,3); hmCtx.fill();
+  hmCtx.fillStyle='rgba(106,138,170,.8)'; hmCtx.font='8px "Share Tech Mono",monospace';
+  hmCtx.textAlign='left';  hmCtx.fillText('0.0',lx,   ly-2);
+  hmCtx.textAlign='center';hmCtx.fillText('0.3',lx+lw*.3,ly-2);
+  hmCtx.textAlign='center';hmCtx.fillText('0.6',lx+lw*.6,ly-2);
+  hmCtx.textAlign='right'; hmCtx.fillText('1.0',lx+lw,  ly-2);
+  hmCtx.textAlign='left';
+}
+
+// Fit canvas to parent on resize
+function resizeHeatmap() {
+  const cw = hmCanvas.parentElement.clientWidth - 20;
+  hmCanvas.width = cw;
+  updateHeatmap();
+}
+window.addEventListener('resize', resizeHeatmap);
+setTimeout(resizeHeatmap, 50);
+
+/* ================================================================
+   TREND CHART
+   ================================================================ */
+const TREND_COLORS = { A:'#1e6aff', B:'#ff5533', C:'#00cc55', D:'#aa55ff' };
+const trendHistory = { A:[], B:[], C:[], D:[] };
+const trendLabels  = [];
+const MAX_TREND    = 300;
+
+const trendChart = new Chart(document.getElementById('trendChart'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: ['A','B','C','D'].map(z => ({
+      label: `Zone ${z}`, data: [],
+      borderColor: TREND_COLORS[z], borderWidth: 1.5, pointRadius: 0,
+      tension: .3, fill: false,
+    }))
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend:{ display:false } },
+    scales: {
+      x: { ticks:{ color:'#6a8aaa', font:{family:'Share Tech Mono',size:9}, maxTicksLimit:8 },
+           grid:{ color:'rgba(30,46,74,.5)', lineWidth:.5 }, border:{color:'#1e2e4a'} },
+      y: { min:0, max:1, ticks:{ color:'#6a8aaa', font:{family:'Share Tech Mono',size:9}, stepSize:.3 },
+           grid:{ color:'rgba(30,46,74,.5)', lineWidth:.5 }, border:{color:'#1e2e4a'} },
+    }
+  }
+});
+
+function pushHistory(z, score, state) {
+  const t = new Date().toLocaleTimeString('en-GB',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  trendHistory[z].push(score);
+  if (trendHistory[z].length > MAX_TREND) trendHistory[z].shift();
+}
+
+function updateTrendChart() {
+  const t = new Date().toLocaleTimeString('en-GB',{hour12:false});
+  trendLabels.push(t);
+  if (trendLabels.length > MAX_TREND) trendLabels.shift();
+  trendChart.data.labels = trendLabels;
+  trendChart.data.datasets.forEach((ds, i) => {
+    const z = ['A','B','C','D'][i];
+    ds.data = [...trendHistory[z]];
+  });
+  trendChart.update();
+}
+
+/* ================================================================
+   CONTRIBUTION CHART
+   ================================================================ */
+const contribChart = new Chart(document.getElementById('contribChart'), {
+  type: 'bar',
+  data: {
+    labels: [],
+    datasets: [{ data: [], backgroundColor: [], borderWidth: 0, borderRadius: 3 }]
+  },
+  options: {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: { duration:300 },
+    plugins: { legend:{ display:false } },
+    scales: {
+      x: { min:0, max:.22, ticks:{ color:'#6a8aaa',font:{family:'Share Tech Mono',size:9} },
+           grid:{ color:'rgba(30,46,74,.5)',lineWidth:.5 }, border:{color:'#1e2e4a'} },
+      y: { ticks:{ color:'#6a8aaa',font:{family:'Share Tech Mono',size:9} },
+           grid:{ display:false }, border:{color:'#1e2e4a'} },
+    }
+  }
+});
+
+document.getElementById('contrib-zone-sel').addEventListener('change', updateContribChart);
+
+function updateContribChart() {
+  const z  = document.getElementById('contrib-zone-sel').value;
+  const rd = zoneRisk[z];
+  if (!rd?.contributions) return;
+  const top = rd.contributions.slice(0,8);
+  contribChart.data.labels   = top.map(c => (c.label||c.sensor).substring(0,16));
+  contribChart.data.datasets[0].data = top.map(c => Math.abs(c.contribution));
+  contribChart.data.datasets[0].backgroundColor = top.map(c => {
+    const v = Math.abs(c.contribution);
+    if (v > .12) return 'rgba(255,23,68,.75)';
+    if (v > .06) return 'rgba(255,171,0,.75)';
+    if (c.contribution < 0) return 'rgba(0,230,118,.75)';
+    return 'rgba(0,212,255,.65)';
+  });
+  contribChart.update();
+}
+
+/* ================================================================
+   ALERT SYSTEM
+   ================================================================ */
+const alerts = [];
+const prevStates = { A:'SAFE', B:'SAFE', C:'SAFE', D:'SAFE' };
+
+function checkAlert(z, data) {
+  const st   = data.risk_state;
+  const prev = prevStates[z];
+  if (st === prev) return;
+  prevStates[z] = st;
+
+  const s = zoneSensors[z] || {};
+  let msg = '', lvl = st.toLowerCase();
+
+  if (st === 'DANGER') {
+    if ((s.gas||0) > 300 && s.motion)
+      msg = `🔴 DANGER: High gas (${Math.round(s.gas)}ppm) + human presence in Zone ${z}`;
+    else if ((s.radiation||0) > 4)
+      msg = `🔴 DANGER: Elevated radiation (${(s.radiation||0).toFixed(1)}mSv) in Zone ${z}`;
+    else
+      msg = `🔴 DANGER: Critical risk R=${fmt3(data.risk_score)} in Zone ${z}`;
+  } else if (st === 'WARNING') {
+    msg = `🟡 WARNING: Elevated risk R=${fmt3(data.risk_score)} in Zone ${z}`;
+    lvl = 'warn';
+  } else {
+    msg = `🟢 SAFE: Risk normalised in Zone ${z}`;
+    lvl = 'safe';
+  }
+  pushAlert(msg, lvl);
+}
+
+function pushAlert(msg, lvl) {
+  alerts.unshift({ msg, lvl, time: timeStr() });
+  if (alerts.length > 50) alerts.pop();
+  renderAlerts();
+}
+
+function renderAlerts() {
+  const list = document.getElementById('alerts-list');
+  document.getElementById('alert-count').textContent = alerts.length;
+  if (!alerts.length) { list.innerHTML='<div class="alerts-empty">No active alerts</div>'; return; }
+  list.innerHTML = alerts.slice(0,20).map(a => `
+    <div class="alert-item">
+      <div class="alert-dot ${a.lvl}"></div>
+      <div class="alert-msg">${a.msg}</div>
+      <div class="alert-time">${a.time}</div>
+    </div>`).join('');
+}
+
+function clearAlerts() { alerts.length = 0; renderAlerts(); }
+
+/* ================================================================
+   WORKER RISK PROFILES
+   ================================================================ */
+const WORKERS = [
+  {name:'Alex K.',  emoji:'👷', zone:'B'},
+  {name:'Sam R.',   emoji:'🦺', zone:'B'},
+  {name:'Jordan M.',emoji:'👷', zone:'C'},
+  {name:'Casey T.', emoji:'🦺', zone:'A'},
+  {name:'Riley P.', emoji:'👷', zone:'D'},
+  {name:'Dana W.',  emoji:'🦺', zone:'C'},
+];
+
+function updateWorkerCards() {
+  const panel = document.getElementById('workers-panel');
+  panel.innerHTML = WORKERS.map(w => {
+    const zd      = zoneRisk[w.zone] || {};
+    const fatigue = (zoneSensors[w.zone]?.fatigue || 2) / 9;
+    const wRisk   = clamp((zd.risk_score||0) * (0.7 + fatigue * 0.6));
+    const col     = riskColor(wRisk);
+    return `
+      <div class="worker-card">
+        <div class="wc-head">
+          <div class="wc-avatar">${w.emoji}</div>
+          <div>
+            <div class="wc-name">${w.name}</div>
+            <div class="wc-zone">Zone ${w.zone}</div>
+          </div>
+          <div style="margin-left:auto;font-family:var(--mono);font-size:13px;color:${col}">${fmt2(wRisk)}</div>
+        </div>
+        <div class="wc-bar"><div class="wc-fill" style="width:${wRisk*100}%;background:${col}"></div></div>
+        <div style="font-size:9px;color:var(--text2)">Fatigue: ${(fatigue*10).toFixed(1)}/10 · ${zd.risk_state||'—'}</div>
+      </div>`;
+  }).join('');
+}
+
+/* ================================================================
+   STAT ROW (KPI)
+   ================================================================ */
+function updateStatRow() {
+  const maxR  = Math.max(0, ...Object.values(zoneRisk).map(r => r?.risk_score||0));
+  const ndang = Object.values(zoneRisk).filter(r => r?.risk_state==='DANGER').length;
+  const avgR  = Object.values(zoneRisk).reduce((s,r) => s+(r?.risk_score||0),0) / 4;
+  document.getElementById('stat-row').innerHTML = `
+    <div class="stat-card">
+      <div class="sc-val" style="color:${riskColor(maxR)}">${fmt3(maxR)}</div>
+      <div class="sc-lbl">Peak Risk</div>
+    </div>
+    <div class="stat-card">
+      <div class="sc-val" style="color:${ndang?'var(--danger)':'var(--safe)'}">${ndang}</div>
+      <div class="sc-lbl">Danger Zones</div>
+    </div>
+    <div class="stat-card">
+      <div class="sc-val" style="color:${riskColor(avgR)}">${fmt3(avgR)}</div>
+      <div class="sc-lbl">Average Risk</div>
+    </div>`;
+}
+
+/* ================================================================
+   RISK DECOMPOSITION
+   ================================================================ */
+function updateDecomp() {
+  const z  = document.getElementById('ai-zone-sel').value;
+  const rd = zoneRisk[z];
+  if (!rd) return;
+  const el = document.getElementById('decomp-content');
+  const col = riskColor(rd.risk_score);
+  el.innerHTML = `
+    <div style="text-align:center;padding:8px 0 14px;">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:4px;">Final Risk R(t)</div>
+      <div style="font-family:var(--mono);font-size:38px;color:${col};line-height:1;">${fmt3(rd.risk_score)}</div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${col}">${rd.risk_state}</div>
+    </div>
+    <div class="sep"></div>
+    <div class="info-kv"><span class="k">R_env(t)</span><span class="v">${fmt3(rd.risk_env)}</span></div>
+    <div class="info-kv"><span class="k">H(t)</span><span class="v">${rd.amplification}× (motion: ${zoneSensors[z]?.motion?'YES':'no'})</span></div>
+    <div class="info-kv"><span class="k">R = min(1, R_env·H)</span><span class="v">${fmt3(rd.risk_score)}</span></div>
+    <div class="info-kv"><span class="k">Temp Trend</span><span class="v">${fmt3(rd.temp_trend)}</span></div>
+    <div class="info-kv"><span class="k">Ventilation</span><span class="v">${rd.vent_on?'▲ ON':'▼ OFF'}</span></div>
+    <div class="sep"></div>
+    <div style="font-size:9px;color:var(--text2);line-height:1.7;font-family:var(--mono);">
+      R_env = Σ w_i·S_i<br>
+      H(t) = 1 + α·M(t)  [α=0.40]<br>
+      θ₁=0.30 (WARNING)<br>
+      θ₂=0.60 (DANGER)
+    </div>`;
+}
+
+document.getElementById('ai-zone-sel').addEventListener('change', updateDecomp);
+
+/* ================================================================
+   HEADER STATUS
+   ================================================================ */
+function updateHeaderStatus() {
+  const states = Object.values(zoneRisk).map(r => r?.risk_state||'SAFE');
+  const global = states.includes('DANGER') ? 'DANGER' : states.includes('WARNING') ? 'WARNING' : 'SAFE';
+  const chip = document.getElementById('hdr-status');
+  chip.className = 'status-chip ' + riskClass(global);
+  document.getElementById('hdr-text').textContent = 'SYSTEM ' + global;
+  const dot = document.getElementById('hdr-dot');
+  dot.className = 'chip-dot ' + (global==='DANGER' ? 'flash' : 'pulse');
+  const anyVent = Object.values(zoneRisk).some(r => r?.vent_on);
+  setVentChip(document.getElementById('hdr-vent'), anyVent);
+}
+
+/* ================================================================
+   GEMINI AI INTEGRATION
+   ================================================================ */
+let autoAI     = false;
+let autoAItick = 0;
+
+function toggleAutoAI() {
+  autoAI = !autoAI;
+  document.getElementById('ai-auto-btn').textContent = `Auto: ${autoAI?'ON':'OFF'}`;
+  document.getElementById('ai-auto-btn').className   = 'btn' + (autoAI ? ' active' : '');
+}
+
+async function runGeminiAnalysis() {
+  const zone = document.getElementById('ai-zone-sel').value;
+  const rd   = zoneRisk[zone];
+  const sv   = zoneSensors[zone];
+  if (!rd) { alert('No risk data yet. Wait a moment.'); return; }
+
+  const btn = document.getElementById('ai-analyze-btn');
+  btn.disabled = true; btn.textContent = '⌛ Analyzing…';
+
+  const explainEl  = document.getElementById('ai-explain');
+  const actionsEl  = document.getElementById('ai-actions');
+  const alertEl    = document.getElementById('ai-alert');
+
+  explainEl.innerHTML  = '<div class="ai-thinking"><div class="spinner"></div> Generating explanation…</div>';
+  actionsEl.innerHTML  = '<li><span class="act-num">—</span> Generating recommendations…</li>';
+  alertEl.textContent  = 'Analyzing…';
+
+  const top5 = (rd.contributions||[]).slice(0,5)
+    .map(c => `${c.label||c.sensor}: ${(c.contribution*100).toFixed(1)}%`)
+    .join(', ');
+
+  const prompt = `You are an industrial safety AI for a smart factory.
+Zone: ${zone} | Risk Score: ${rd.risk_score} | State: ${rd.risk_state}
+R_env: ${rd.risk_env} | Amplification H(t): ${rd.amplification}× | Motion: ${sv?.motion ? 'YES' : 'no'}
+Temperature: ${sv?.temperature?.toFixed(1)}°C | Gas: ${sv?.gas?.toFixed(0)}ppm | Radiation: ${sv?.radiation?.toFixed(2)}mSv
+AQI: ${sv?.air_quality?.toFixed(0)} | Workers in zone: ${sv?.worker_density?.toFixed(0)} | Fatigue: ${sv?.fatigue?.toFixed(1)}/10
+Ventilation: ${sv?.ventilation?.toFixed(0)}% | Temp Trend: ${rd.temp_trend}
+Top contributing factors: ${top5}
+
+Respond ONLY in this exact JSON format (no markdown, no backticks):
+{
+  "explanation": "2-3 sentence explanation of why risk is at this level",
+  "actions": ["First immediate action", "Second preventive measure", "Third longer-term step"],
+  "alert_message": "One-sentence safety alert appropriate for ${rd.risk_state} state"
+}`;
+
+  try {
+    const res = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 600 }
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'Gemini API error');
+    const raw    = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    const clean  = raw.replace(/```json[\s\S]*?```|```[\s\S]*?```/g, s => s.replace(/```json|```/g,'')).trim();
+    const parsed = JSON.parse(clean);
+    renderAIResponse(parsed, rd.risk_state);
+  } catch(e) {
+    // On any parse or network error fall back to rule-based explanation
+    if (e.name === 'SyntaxError') {
+      renderAIFallback(zone, rd, sv);
+    } else {
+      explainEl.innerHTML = `<span class="ai-thinking">⚠ Gemini error: ${e.message}</span>`;
+    }
+  }
+
+  btn.disabled = false; btn.textContent = '⚡ Analyze Risk';
+}
+
+/** Fallback analysis when no API key is set */
+function renderAIFallback(zone, rd, sv) {
+  const state = rd.risk_state;
+  const top3  = (rd.contributions||[]).slice(0,3).map(c => c.label||c.sensor).join(', ');
+  const isMotion = sv?.motion;
+
+  let explanation, actions, alert_msg;
+  if (state === 'DANGER') {
+    explanation = `Zone ${zone} is at critical risk (R=${rd.risk_score}). Primary hazard drivers are ${top3}. ${isMotion?'Human presence is amplifying environmental risk by '+rd.amplification+'×.':'Multiple environmental sensors are at dangerous levels simultaneously.'}`;
+    actions     = ['Activate emergency ventilation and evacuation protocol immediately.', `Isolate Zone ${zone} — restrict all non-essential personnel from entry.`, 'Dispatch safety team; alert supervisor and facilities management.'];
+    alert_msg   = `CRITICAL: Zone ${zone} risk at ${rd.risk_score.toFixed(2)} — emergency response required.`;
+  } else if (state === 'WARNING') {
+    explanation = `Zone ${zone} is showing elevated risk (R=${rd.risk_score}). Key factors are ${top3}. ${isMotion?'Worker presence is increasing effective risk to '+rd.risk_score.toFixed(3)+'.':'Conditions may deteriorate without intervention.'}`;
+    actions     = ['Increase ventilation efficiency and monitor gas levels closely.', `Reduce worker density in Zone ${zone} and limit fatigue exposure.`, 'Inspect machinery for overload conditions; prepare contingency protocols.'];
+    alert_msg   = `WARNING: Zone ${zone} at elevated risk R=${rd.risk_score.toFixed(2)} — monitor closely.`;
+  } else {
+    explanation = `Zone ${zone} is operating within safe parameters (R=${rd.risk_score}). All major sensor readings are nominal. Ventilation is ${sv?.ventilation?.toFixed(0)}% efficient, providing adequate risk mitigation.`;
+    actions     = ['Continue regular monitoring per standard schedule.', 'Ensure ventilation maintenance is up to date.', 'Conduct routine safety walkthrough as per SOP.'];
+    alert_msg   = `Zone ${zone} SAFE — all systems nominal (R=${rd.risk_score.toFixed(2)}).`;
+  }
+  renderAIResponse({ explanation, actions, alert_message: alert_msg }, state);
+}
+
+function renderAIResponse(parsed, state) {
+  const explainEl = document.getElementById('ai-explain');
+  const actionsEl = document.getElementById('ai-actions');
+  const alertEl   = document.getElementById('ai-alert');
+
+  explainEl.textContent = parsed.explanation || '—';
+  actionsEl.innerHTML   = (parsed.actions||[]).map((a,i) =>
+    `<li><span class="act-num">${i+1}</span>${a}</li>`).join('');
+  alertEl.textContent   = parsed.alert_message || '—';
+  alertEl.className     = `ai-alert-box ${riskClass(state)}`;
+}
+
+/* ================================================================
+   AUTO-AI (trigger every 30 s if WARNING/DANGER)
+   ================================================================ */
+setInterval(() => {
+  if (!autoAI) return;
+  autoAItick++;
+  if (autoAItick % 30 !== 0) return;
+  const anyHigh = Object.values(zoneRisk).some(r => r?.risk_state !== 'SAFE');
+  if (anyHigh) runGeminiAnalysis();
+}, 1000);
+
+/* ================================================================
+   INIT & POLLING LOOP
+   ================================================================ */
+renderAlerts();
+updateStatRow();
+setInterval(pollAllZones, 1500);
+pollAllZones();
+</script>
+</body>
+</html>

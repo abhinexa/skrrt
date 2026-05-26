@@ -1,0 +1,1589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Context-Aware Multi-Sensor Risk System</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg:       #060b14;
+    --panel:    #090f1e;
+    --border:   #0e1c35;
+    --border2:  #162540;
+    --cyan:     #00d4ff;
+    --blue:     #3a7fff;
+    --safe:     #00e57a;
+    --warn:     #ffa500;
+    --danger:   #ff2d2d;
+    --text1:    #c8d8f0;
+    --text2:    #4a6890;
+    --text3:    #253a5a;
+    --mono:     'Share Tech Mono', monospace;
+    --ui:       'Rajdhani', sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    font-family: var(--ui);
+    color: var(--text1);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── HEADER ──────────────────────────────────────────────────── */
+  #header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    position: relative;
+  }
+  #header::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: 0.3;
+  }
+  .hdr-left h1 {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: var(--cyan);
+    text-transform: uppercase;
+  }
+  .hdr-left .sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    letter-spacing: 1.5px;
+    margin-top: 2px;
+  }
+  .hdr-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .hdr-formula {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    text-align: right;
+    line-height: 1.7;
+  }
+  .hdr-formula span { color: var(--text2); }
+  #hdr-vent {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    border: 1px solid;
+    transition: all 0.4s;
+  }
+  #hdr-vent.on  { color: var(--cyan); border-color: var(--cyan); background: rgba(0,212,255,.08); }
+  #hdr-vent.off { color: var(--text3); border-color: var(--border); background: transparent; }
+
+  /* ── MAIN ─────────────────────────────────────────────────────── */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* 3D canvas */
+  #canvas-area { flex: 1; position: relative; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+
+  /* alarm border */
+  #alarm-overlay {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    border: 3px solid transparent;
+    transition: border-color 0.3s;
+    z-index: 10;
+  }
+  #alarm-overlay.danger  { border-color: rgba(255,45,45,.7);  animation: pulse-border 0.7s ease-in-out infinite; }
+  #alarm-overlay.warning { border-color: rgba(255,165,0,.5);  animation: pulse-border 1.4s ease-in-out infinite; }
+  @keyframes pulse-border { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  /* canvas tooltip */
+  #tooltip {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text2);
+    pointer-events: none;
+    display: none;
+    z-index: 20;
+    min-width: 150px;
+  }
+  #tooltip b { color: var(--cyan); display: block; margin-bottom: 4px; font-size: 11px; }
+
+  /* ── RIGHT PANEL ──────────────────────────────────────────────── */
+  #panel {
+    width: 300px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  /* Zone tabs */
+  #zone-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .ztab {
+    flex: 1;
+    padding: 7px 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-align: center;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    color: var(--text3);
+    transition: all 0.2s;
+    border-bottom: 2px solid transparent;
+  }
+  .ztab:hover { color: var(--text2); }
+  .ztab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+  .ztab .zdot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-right: 4px;
+    background: var(--text3);
+    transition: background 0.3s;
+  }
+  .ztab.active .zdot { background: var(--cyan); }
+  .ztab[data-zone="A"] .zdot { background: #3a7fff; }
+  .ztab[data-zone="B"] .zdot { background: #ff7722; }
+  .ztab[data-zone="C"] .zdot { background: #22cc88; }
+  .ztab[data-zone="D"] .zdot { background: #aa44ff; }
+
+  /* Panel scrollable body */
+  #panel-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  #panel-body::-webkit-scrollbar { width: 4px; }
+  #panel-body::-webkit-scrollbar-track { background: var(--bg); }
+  #panel-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .psec {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .plabel {
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 2.5px;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* Risk score block */
+  #risk-block { text-align: center; padding: 14px 14px 10px; border-bottom: 1px solid var(--border); }
+  #risk-value {
+    font-family: var(--mono);
+    font-size: 52px;
+    font-weight: 400;
+    line-height: 1;
+    transition: color 0.5s;
+    letter-spacing: -2px;
+  }
+  #risk-state {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 4px;
+    margin-top: 4px;
+    transition: color 0.5s;
+  }
+  #risk-bar-bg {
+    margin: 10px 0 4px;
+    height: 6px;
+    background: var(--border2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  #risk-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s, background 0.5s;
+  }
+  #risk-formula-disp {
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--text3);
+    margin-top: 5px;
+    letter-spacing: 0.5px;
+  }
+
+  /* State badge */
+  #state-badge {
+    margin: 0 14px 10px;
+    padding: 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-align: center;
+    border: 1px solid;
+    transition: all 0.5s;
+  }
+
+  /* Predictive warning */
+  #pred-warning {
+    margin: 0 14px 10px;
+    padding: 7px 10px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    background: rgba(255,165,0,.07);
+    border: 1px solid rgba(255,165,0,.3);
+    color: var(--warn);
+    display: none;
+  }
+
+  /* Sensor items */
+  .sensor-row { margin-bottom: 9px; }
+  .sensor-hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 3px;
+  }
+  .sensor-name { font-size: 11px; color: var(--text2); }
+  .sensor-val  { font-family: var(--mono); font-size: 11px; color: var(--text1); }
+  .sbar-bg { height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+  .sbar    { height: 100%; border-radius: 2px; transition: width 0.5s, background 0.5s; }
+  .scontrib {
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--text3);
+    text-align: right;
+    margin-top: 2px;
+  }
+
+  /* Toggle sensor */
+  .toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 9px;
+  }
+  .toggle-label { font-size: 11px; color: var(--text2); }
+  .toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 18px;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--border2);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+  .toggle-track::before {
+    content: '';
+    position: absolute;
+    width: 12px; height: 12px;
+    left: 3px; top: 3px;
+    background: var(--text3);
+    border-radius: 50%;
+    transition: transform 0.3s, background 0.3s;
+  }
+  .toggle-switch input:checked + .toggle-track { background: rgba(0,212,255,.2); }
+  .toggle-switch input:checked + .toggle-track::before {
+    transform: translateX(18px);
+    background: var(--cyan);
+  }
+  .toggle-val {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    min-width: 28px;
+    text-align: right;
+  }
+
+  /* Sliders */
+  .slider-row { margin-bottom: 10px; }
+  .slider-lbl {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text2);
+    margin-bottom: 4px;
+  }
+  .slider-lbl span:last-child { font-family: var(--mono); color: var(--text1); }
+  input[type=range] {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 3px;
+    background: var(--border2);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 11px; height: 11px;
+    background: var(--cyan);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+
+  /* Scenario buttons */
+  .scene-btn {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    margin-bottom: 5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s;
+  }
+  .scene-btn:hover  { background: var(--border2); color: var(--text1); }
+  .scene-btn.active { background: rgba(0,212,255,.07); border-color: var(--cyan); color: var(--cyan); }
+
+  /* Contribution bars */
+  .contrib-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+  .contrib-lbl { font-size: 9px; color: var(--text2); width: 82px; flex-shrink: 0; }
+  .contrib-bar-bg {
+    flex: 1;
+    height: 4px;
+    background: var(--border2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .contrib-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .contrib-val { font-family: var(--mono); font-size: 8px; color: var(--text3); width: 38px; text-align: right; flex-shrink: 0; }
+
+  /* Log */
+  #log {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    max-height: 80px;
+    overflow-y: auto;
+    line-height: 1.7;
+  }
+  #log .l-danger { color: var(--danger); }
+  #log .l-warn   { color: var(--warn); }
+  #log .l-safe   { color: var(--safe); }
+
+  /* Bottom bar */
+  #bottom-bar {
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 5px 16px;
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--text3);
+    letter-spacing: 1px;
+    display: flex;
+    gap: 20px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+  #bottom-bar span { color: var(--text2); }
+  #bottom-bar .sep { color: var(--border2); }
+
+  /* Temp trend indicator */
+  #trend-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    margin-left: 6px;
+    transition: all 0.3s;
+  }
+  .trend-rising-fast { background: rgba(255,45,45,.15); color: var(--danger); border: 1px solid rgba(255,45,45,.3); }
+  .trend-rising      { background: rgba(255,165,0,.12); color: var(--warn);   border: 1px solid rgba(255,165,0,.3); }
+  .trend-stable      { background: rgba(0,229,122,.1);  color: var(--safe);   border: 1px solid rgba(0,229,122,.2); }
+  .trend-falling     { background: rgba(0,212,255,.1);  color: var(--cyan);   border: 1px solid rgba(0,212,255,.2); }
+  .trend-falling-fast{ background: rgba(0,212,255,.15); color: var(--cyan);   border: 1px solid rgba(0,212,255,.3); }
+
+  /* Info rows (overlay) */
+  .info-row { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px; }
+  .info-row .k { color: var(--text3); font-size: 9px; }
+  .info-row .v { font-family: var(--mono); color: var(--text1); font-size: 10px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <div class="hdr-left">
+    <h1>Context-Aware Multi-Sensor Risk System</h1>
+    <div class="sub">Experiential Learning Phase I &nbsp;·&nbsp; Industrial Hazard Detection &nbsp;·&nbsp; 15-Sensor Fusion</div>
+  </div>
+  <div class="hdr-right">
+    <div class="hdr-formula">
+      R(t) = Σ wᵢ(t) · Sᵢ(t) &nbsp;·&nbsp; wg(t) = wg₀·(1+α·M(t))<br>
+      <span>THRESHOLDS: SAFE &lt;0.30 · WARNING 0.30–0.60 · DANGER ≥0.60</span>
+    </div>
+    <div id="hdr-vent" class="off">○ VENT OFF</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- 3D Canvas -->
+  <div id="canvas-area">
+    <canvas id="c"></canvas>
+    <div id="alarm-overlay"></div>
+    <div id="tooltip"></div>
+  </div>
+
+  <!-- Right Panel -->
+  <div id="panel">
+
+    <!-- Zone tabs -->
+    <div id="zone-tabs">
+      <button class="ztab active" data-zone="A" onclick="selectZone('A')"><span class="zdot"></span>Zone A</button>
+      <button class="ztab" data-zone="B" onclick="selectZone('B')"><span class="zdot"></span>Zone B</button>
+      <button class="ztab" data-zone="C" onclick="selectZone('C')"><span class="zdot"></span>Zone C</button>
+      <button class="ztab" data-zone="D" onclick="selectZone('D')"><span class="zdot"></span>Zone D</button>
+    </div>
+
+    <div id="panel-body">
+
+      <!-- Risk Score -->
+      <div id="risk-block">
+        <div class="plabel" style="margin-bottom:6px;">Composite Risk R(t)</div>
+        <div id="risk-value">0.00</div>
+        <div id="risk-state">COMPUTING...</div>
+        <div id="risk-bar-bg"><div id="risk-bar" style="width:0%"></div></div>
+        <div id="risk-formula-disp">α=0.5 &nbsp;·&nbsp; 15 sensors &nbsp;·&nbsp; dynamic weights</div>
+      </div>
+
+      <!-- State badge -->
+      <div id="state-badge" style="background:rgba(0,80,40,.3);color:#00e57a;border-color:#00e57a;">SAFE</div>
+
+      <!-- Predictive warning -->
+      <div id="pred-warning">⚠ PREDICTIVE: T-trend early warning — temp rising fast</div>
+
+      <!-- Sensor Quick Readings (primary 5) -->
+      <div class="psec">
+        <div class="plabel">Primary Sensors</div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">⬡ Gas (MQ-2)</span>
+            <span class="sensor-val" id="sv-gas">— ppm</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-gas" style="width:0%;background:var(--blue)"></div></div>
+          <div class="scontrib" id="sc-gas">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">⬡ Temperature (DHT22)</span>
+            <span class="sensor-val" id="sv-temp">— °C</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-temp" style="width:0%;background:#ff8800"></div></div>
+          <div class="scontrib" id="sc-temp">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">⬡ T-Trend <span id="trend-badge" class="trend-stable">STABLE</span></span>
+            <span class="sensor-val" id="sv-ttrend">0.000</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-ttrend" style="width:0%;background:var(--warn)"></div></div>
+          <div class="scontrib" id="sc-ttrend">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">⬡ Motion (PIR)</span>
+            <span class="sensor-val" id="sv-motion">NO</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-motion" style="width:0%;background:#aa44ff"></div></div>
+          <div class="scontrib" id="sc-motion">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">⬡ Air Quality (AQI)</span>
+            <span class="sensor-val" id="sv-aq">— AQI</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-aq" style="width:0%;background:#44aaff"></div></div>
+          <div class="scontrib" id="sc-aq">contrib: —</div>
+        </div>
+      </div>
+
+      <!-- Secondary Sensors -->
+      <div class="psec">
+        <div class="plabel">Environmental Sensors</div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Humidity (DHT22)</span>
+            <span class="sensor-val" id="sv-hum">— %</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-hum" style="width:0%;background:#22aadd"></div></div>
+          <div class="scontrib" id="sc-hum">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Radiation</span>
+            <span class="sensor-val" id="sv-rad">— mSv</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-rad" style="width:0%;background:#aaff44"></div></div>
+          <div class="scontrib" id="sc-rad">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Pressure</span>
+            <span class="sensor-val" id="sv-pres">— kPa</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-pres" style="width:0%;background:#88aaff"></div></div>
+          <div class="scontrib" id="sc-pres">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Ventilation Eff.</span>
+            <span class="sensor-val" id="sv-vent">— %</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-vent" style="width:0%;background:var(--safe)"></div></div>
+          <div class="scontrib" id="sc-vent">contrib: —</div>
+        </div>
+      </div>
+
+      <!-- Machine/Operational Sensors -->
+      <div class="psec">
+        <div class="plabel">Operational Sensors</div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Vibration</span>
+            <span class="sensor-val" id="sv-vib">— g</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-vib" style="width:0%;background:#ffaa44"></div></div>
+          <div class="scontrib" id="sc-vib">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Machine Load</span>
+            <span class="sensor-val" id="sv-ml">— %</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-ml" style="width:0%;background:#ff6644"></div></div>
+          <div class="scontrib" id="sc-ml">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Noise Level</span>
+            <span class="sensor-val" id="sv-noise">— dB</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-noise" style="width:0%;background:#ddaa22"></div></div>
+          <div class="scontrib" id="sc-noise">contrib: —</div>
+        </div>
+      </div>
+
+      <!-- Human Factor Sensors -->
+      <div class="psec">
+        <div class="plabel">Human Factor Sensors</div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Worker Density</span>
+            <span class="sensor-val" id="sv-wd">— /zone</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-wd" style="width:0%;background:#aa88ff"></div></div>
+          <div class="scontrib" id="sc-wd">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Fatigue Level</span>
+            <span class="sensor-val" id="sv-fat">— /10</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-fat" style="width:0%;background:#ff88aa"></div></div>
+          <div class="scontrib" id="sc-fat">contrib: —</div>
+        </div>
+
+        <div class="sensor-row">
+          <div class="sensor-hdr">
+            <span class="sensor-name">Forklift Activity</span>
+            <span class="sensor-val" id="sv-fk">— /10</span>
+          </div>
+          <div class="sbar-bg"><div class="sbar" id="sb-fk" style="width:0%;background:#ffcc44"></div></div>
+          <div class="scontrib" id="sc-fk">contrib: —</div>
+        </div>
+
+        <div class="toggle-row" style="padding: 4px 0;">
+          <span class="toggle-label">Door State</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="toggle-val" id="sv-door">CLOSED</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="door-toggle" onchange="manualMode()">
+              <div class="toggle-track"></div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sensor Contributions -->
+      <div class="psec">
+        <div class="plabel">Sensor Contributions ↑</div>
+        <div id="contrib-list"></div>
+      </div>
+
+      <!-- Manual Controls -->
+      <div class="psec">
+        <div class="plabel">Manual Controls — Zone <span id="zone-label-ctrl">A</span></div>
+
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Gas Level</span><span id="lv-gas">0 ppm</span></div>
+          <input type="range" id="sl-gas" min="0" max="900" step="5" value="30" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Temperature</span><span id="lv-temp">25°C</span></div>
+          <input type="range" id="sl-temp" min="10" max="90" step="0.5" value="25" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Humidity</span><span id="lv-hum">55%</span></div>
+          <input type="range" id="sl-hum" min="20" max="95" step="1" value="55" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Air Quality</span><span id="lv-aq">45 AQI</span></div>
+          <input type="range" id="sl-aq" min="10" max="450" step="5" value="45" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Radiation</span><span id="lv-rad">0.1 mSv</span></div>
+          <input type="range" id="sl-rad" min="0" max="9" step="0.05" value="0.1" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Vibration</span><span id="lv-vib">0.5 g</span></div>
+          <input type="range" id="sl-vib" min="0" max="9" step="0.1" value="0.5" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Machine Load</span><span id="lv-ml">50%</span></div>
+          <input type="range" id="sl-ml" min="0" max="100" step="1" value="50" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Noise Level</span><span id="lv-noise">62 dB</span></div>
+          <input type="range" id="sl-noise" min="30" max="115" step="1" value="62" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Pressure</span><span id="lv-pres">101.0 kPa</span></div>
+          <input type="range" id="sl-pres" min="98" max="108" step="0.1" value="101" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Worker Density</span><span id="lv-wd">3 /zone</span></div>
+          <input type="range" id="sl-wd" min="0" max="18" step="0.5" value="3" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Fatigue Level</span><span id="lv-fat">2 /10</span></div>
+          <input type="range" id="sl-fat" min="0" max="9" step="0.5" value="2" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Forklift Activity</span><span id="lv-fk">1 /10</span></div>
+          <input type="range" id="sl-fk" min="0" max="9" step="0.5" value="1" oninput="manualMode()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-lbl"><span>Ventilation Eff.</span><span id="lv-vent">85%</span></div>
+          <input type="range" id="sl-vent" min="0" max="100" step="1" value="85" oninput="manualMode()">
+        </div>
+        <div class="toggle-row" style="padding:4px 0 6px;">
+          <span class="toggle-label">Motion (PIR)</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="toggle-val" id="lv-motion">OFF</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="sl-motion" onchange="manualMode()">
+              <div class="toggle-track"></div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scenarios -->
+      <div class="psec">
+        <div class="plabel">Scenarios</div>
+        <button class="scene-btn active" id="btn-auto"   onclick="setScenario('auto')">▶ AUTO SIMULATION</button>
+        <button class="scene-btn" id="btn-safe"   onclick="setScenario('safe')">○ All Clear — Normal</button>
+        <button class="scene-btn" id="btn-leak"   onclick="setScenario('leak')">⚠ Gas Leak — No Worker</button>
+        <button class="scene-btn" id="btn-hot"    onclick="setScenario('hot')">⚠ High Temp + Worker</button>
+        <button class="scene-btn" id="btn-chem"   onclick="setScenario('chem')">⚠ Chemical Spill</button>
+        <button class="scene-btn" id="btn-danger" onclick="setScenario('danger')">✕ Full Danger Event</button>
+        <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
+          <button class="scene-btn active" id="btn-orbit" onclick="toggleOrbit()">⟳ AUTO-ORBIT ON</button>
+          <div style="font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:4px;">Drag canvas to rotate · Click sensor to inspect</div>
+        </div>
+      </div>
+
+      <!-- Info & Log -->
+      <div class="psec">
+        <div class="plabel">Zone Stats</div>
+        <div class="info-row"><span class="k">T-trend raw</span><span class="v" id="ov-ttrend">0.000</span></div>
+        <div class="info-row"><span class="k">Active zone</span><span class="v" id="ov-zone">A</span></div>
+        <div class="info-row"><span class="k">Vent auto</span><span class="v" id="ov-vent-auto">OFF</span></div>
+        <div class="info-row"><span class="k">Risk predicted</span><span class="v" id="ov-pred">—</span></div>
+      </div>
+
+      <div class="psec" style="padding-bottom:14px;">
+        <div class="plabel">Event Log</div>
+        <div id="log"></div>
+      </div>
+
+    </div><!-- /panel-body -->
+  </div><!-- /panel -->
+
+</div><!-- /main -->
+
+<div id="bottom-bar">
+  <span>SENSORS: 15</span>
+  <span class="sep">·</span>
+  <span>ZONES: 4</span>
+  <span class="sep">·</span>
+  <span id="tick-counter">TICK: 0</span>
+  <span class="sep">·</span>
+  <span>MODEL: WEIGHTED FUSION + T-TREND</span>
+  <span class="sep">·</span>
+  <span>ALGO: DYNAMIC AMPLIFICATION α=0.5</span>
+  <span style="margin-left:auto; color:var(--text3);">W↑A↓S↓D← WALK · DRAG ROTATE · CLICK SENSOR</span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+
+// ═══════════════════════════════════════════════════════════
+// THREE.JS SETUP
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060b14);
+scene.fog = new THREE.FogExp2(0x060b14, 0.032);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+camera.position.set(12, 10, 14);
+camera.lookAt(0, 1, 0);
+
+function resize() {
+  const a = canvas.parentElement;
+  renderer.setSize(a.clientWidth, a.clientHeight);
+  camera.aspect = a.clientWidth / a.clientHeight;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── LIGHTS ──────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x1a2540, 2.5));
+const sun = new THREE.DirectionalLight(0x4a9eff, 1.2);
+sun.position.set(8, 14, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 50;
+sun.shadow.camera.left = -15; sun.shadow.camera.right = 15;
+sun.shadow.camera.top = 15; sun.shadow.camera.bottom = -15;
+scene.add(sun);
+
+// ═══════════════════════════════════════════════════════════
+// FACTORY SCENE GEOMETRY
+// ═══════════════════════════════════════════════════════════
+const M = {
+  floor:   new THREE.MeshLambertMaterial({ color: 0x0b1525 }),
+  wall:    new THREE.MeshLambertMaterial({ color: 0x101c35 }),
+  metal:   new THREE.MeshLambertMaterial({ color: 0x162035 }),
+  pipe:    new THREE.MeshLambertMaterial({ color: 0x14202e }),
+  machine: new THREE.MeshLambertMaterial({ color: 0x0e1a2c }),
+  yellow:  new THREE.MeshLambertMaterial({ color: 0x554400 }),
+  screen:  new THREE.MeshLambertMaterial({ color: 0x003366, emissive: 0x001133 }),
+};
+
+function box(w,h,d, mat, x,y,z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z); m.receiveShadow=true; m.castShadow=true;
+  scene.add(m); return m;
+}
+function cyl(rt,rb,h,seg,mat, x,y,z, rx,rz) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg), mat);
+  m.position.set(x,y,z);
+  if(rx) m.rotation.x=rx; if(rz) m.rotation.z=rz;
+  m.castShadow=true; scene.add(m); return m;
+}
+
+// Floor + grid
+box(32,0.2,24, M.floor, 0,-0.1,0);
+for(let i=-7;i<=7;i+=2) {
+  box(32,0.01,0.04, new THREE.MeshLambertMaterial({color:0x1a2540}), 0,0,i);
+  box(0.04,0.01,24, new THREE.MeshLambertMaterial({color:0x1a2540}), i,0,0);
+}
+
+// Walls
+box(32,8,0.3, M.wall, 0,4,-12);
+box(32,8,0.3, M.wall, 0,4,12);
+box(0.3,8,24, M.wall, -16,4,0);
+
+// Ceiling beams
+for(let i=-6;i<=6;i+=4) box(32,0.3,0.3, M.metal, 0,8,i);
+for(let i=-12;i<=12;i+=4) box(0.3,0.3,24, M.metal, i,8,0);
+
+// Zone 1: Tank + pipes
+cyl(1.2,1.2,3.5,16, new THREE.MeshLambertMaterial({color:0x0e2040}), -7,1.75,-4);
+cyl(1.0,1.0,0.4,16, new THREE.MeshLambertMaterial({color:0x1a3060}), -7,3.7,-4);
+cyl(0.15,0.15,2,8, M.pipe, -6,2.5,-4);
+cyl(0.12,0.12,1.5,8, M.pipe, -7,3.0,-3.0, Math.PI/2, 0);
+
+// Zone 2: Conveyor belt
+box(8,0.4,1.5, M.metal, 2,0.7,4);
+box(7.6,0.08,1.2, new THREE.MeshLambertMaterial({color:0x1a2540}), 2,0.91,4);
+for(let i=-3;i<=3;i++) cyl(0.2,0.2,1.5,8, M.metal, i*1.2+2,0.7,4, Math.PI/2, 0);
+
+// Zone 3: Control panel
+box(2,2,0.4, M.machine, 5,1,-6);
+box(1.6,0.05,0.3, new THREE.MeshLambertMaterial({color:0x1a4060}), 5,2.05,-5.8);
+box(1.4,0.8,0.05, M.screen, 5,1.5,-5.75);
+
+// Zone 4: Storage shelves
+for(let i=0;i<3;i++) {
+  box(4,0.1,1, M.metal, -4,0.8+i*1.2,7);
+  box(0.08,3.6,1, M.metal, -2.2,1.8,7);
+  box(0.08,3.6,1, M.metal, -5.8,1.8,7);
+  for(let j=0;j<3;j++) {
+    const c = new THREE.MeshLambertMaterial({color:[0x1a3050,0x203020,0x302010][j%3]});
+    box(0.7,0.6,0.8, c, -4+(j-1)*1.3, 1.1+i*1.2, 7);
+  }
+}
+
+// Forklift-like machine
+box(1.5,0.8,2, M.machine, 9,0.4,5);
+box(0.3,2.5,0.15, M.metal, 9.7,1.5,4.2);
+box(1.2,0.1,0.8, M.yellow, 9.7,0.9,5);
+
+// Extra pipes on ceiling
+for(let i=-3;i<=3;i++) cyl(0.06,0.06,24,6,M.pipe, i*2,7.8,0, Math.PI/2);
+
+// Door indicator box on wall
+box(0.3,2.2,1.4, new THREE.MeshLambertMaterial({color:0x1a3050}), -15.8,1.1,3);
+const doorMat = new THREE.MeshLambertMaterial({color:0x001a33, emissive:0x000820, emissiveIntensity:0.5});
+const doorMesh = box(0.15,2.0,1.2, doorMat, -15.85,1.0,3);
+
+// ── RGB LED on wall ──────────────────────────────────────────
+const ledMat = new THREE.MeshLambertMaterial({color:0x00ff44, emissive:0x00ff44, emissiveIntensity:1.5});
+const led = new THREE.Mesh(new THREE.SphereGeometry(0.18,12,12), ledMat);
+led.position.set(-14,4,0); scene.add(led);
+const ledLight = new THREE.PointLight(0x00ff44, 1.5, 5);
+ledLight.position.set(-13.5,4,0); scene.add(ledLight);
+
+// ═══════════════════════════════════════════════════════════
+// SENSOR OBJECTS (positioned in 3D scene)
+// ═══════════════════════════════════════════════════════════
+const sensors = [];
+
+function makeSensor(x,y,z, color, label, type) {
+  const g = new THREE.Group();
+  g.position.set(x,y,z);
+
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04,0.04,y,6),
+    new THREE.MeshLambertMaterial({color:0x223350})
+  );
+  pole.position.y = -y/2; g.add(pole);
+
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35,0.35,0.35),
+    new THREE.MeshLambertMaterial({color, emissive:color, emissiveIntensity:0.3})
+  );
+  g.add(head);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.25, 0.04, 8, 16),
+    new THREE.MeshLambertMaterial({color:0x4a9eff, emissive:0x4a9eff, emissiveIntensity:0.5})
+  );
+  ring.rotation.x = Math.PI/2; g.add(ring);
+
+  const light = new THREE.PointLight(color, 0.3, 2.5);
+  g.add(light);
+
+  g.castShadow = true; scene.add(g);
+  return { group:g, head, ring, light, label, type, x, y, z };
+}
+
+const gasSensor   = makeSensor(-5,  1.8, -5,  0x4488ff, 'Gas (MQ-2)',        'gas');
+const tempSensor  = makeSensor( 2,  2.2,  2,  0xff8800, 'Temp/Humidity (DHT22)', 'temp');
+const pirSensor   = makeSensor( 6,  1.5, -3,  0xaa44ff, 'Motion (PIR)',       'pir');
+const aqSensor    = makeSensor(-3,  1.6,  5,  0x44aaff, 'Air Quality',        'aq');
+const vibSensor   = makeSensor( 8,  1.4,  4,  0xffaa44, 'Vibration',          'vib');
+const radSensor   = makeSensor(-8,  1.5,  3,  0x88ee44, 'Radiation',          'rad');
+sensors.push(gasSensor, tempSensor, pirSensor, aqSensor, vibSensor, radSensor);
+
+// ── Worker figure ────────────────────────────────────────────
+const workerGroup = new THREE.Group();
+const wb = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.7,0.25), new THREE.MeshLambertMaterial({color:0x2244aa}));
+wb.position.y=0.85; workerGroup.add(wb);
+const wh = new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8), new THREE.MeshLambertMaterial({color:0xcc9966}));
+wh.position.y=1.45; workerGroup.add(wh);
+const whh = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.19,0.15,8), new THREE.MeshLambertMaterial({color:0xffaa00}));
+whh.position.y=1.56; workerGroup.add(whh);
+[-0.12,0.12].forEach(x => {
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.6,0.2), new THREE.MeshLambertMaterial({color:0x112244}));
+  leg.position.set(x,0.3,0); workerGroup.add(leg);
+});
+workerGroup.position.set(4,0,-1);
+workerGroup.visible=false;
+scene.add(workerGroup);
+
+// PIR detection cone
+const pirCone = new THREE.Mesh(
+  new THREE.ConeGeometry(2.5,4,16,1,true),
+  new THREE.MeshLambertMaterial({color:0xaa44ff, transparent:true, opacity:0.05, side:THREE.DoubleSide})
+);
+pirCone.position.set(6,-0.5,-3); pirCone.rotation.x=Math.PI/2;
+pirCone.visible=false; scene.add(pirCone);
+
+// ── Gas particle system ──────────────────────────────────────
+const gasParticles = [];
+const pGeo = new THREE.SphereGeometry(0.06,4,4);
+for(let i=0;i<50;i++) {
+  const pm = new THREE.MeshLambertMaterial({color:0x4488ff,transparent:true,opacity:0});
+  const p = new THREE.Mesh(pGeo, pm);
+  p.position.set(-5+Math.random()*3-1.5, 2+Math.random()*3, -5+Math.random()*3-1.5);
+  p.userData = { vx:(Math.random()-.5)*.025, vy:Math.random()*.018, vz:(Math.random()-.5)*.025, life:Math.random() };
+  scene.add(p); gasParticles.push(p);
+}
+
+// ── Heat particles ───────────────────────────────────────────
+const heatParticles = [];
+for(let i=0;i<25;i++) {
+  const pm = new THREE.MeshLambertMaterial({color:0xff8800,transparent:true,opacity:0});
+  const p = new THREE.Mesh(new THREE.SphereGeometry(0.08,4,4), pm);
+  p.position.set(2+Math.random()*2-1, 2.5+Math.random(), 2+Math.random()*2-1);
+  p.userData = { vy:0.01+Math.random()*.02, life:Math.random(), ox:p.position.x, oz:p.position.z };
+  scene.add(p); heatParticles.push(p);
+}
+
+// ── Zone alarm lights ─────────────────────────────────────────
+const zoneAlarmLights = {
+  A: new THREE.PointLight(0xff2200, 0, 8),
+  B: new THREE.PointLight(0xff2200, 0, 8),
+  C: new THREE.PointLight(0xff2200, 0, 8),
+  D: new THREE.PointLight(0xff2200, 0, 8),
+};
+scene.add(zoneAlarmLights.A); zoneAlarmLights.A.position.set(0,6,0);
+scene.add(zoneAlarmLights.B); zoneAlarmLights.B.position.set(0,6,0);
+
+// ═══════════════════════════════════════════════════════════
+// RISK ENGINE  (JS port of risk_engine.py)
+// ═══════════════════════════════════════════════════════════
+const W = {
+  gas:0.15, motion:0.08, temp_trend:0.10, humidity:0.04,
+  air_quality:0.08, radiation:0.06, vibration:0.05,
+  machine_load:0.05, noise:0.04, pressure:0.04,
+  worker_density:0.07, fatigue:0.06, forklift:0.06,
+  door_state:0.03, ventilation:0.08
+};
+const ALPHA = 0.5;
+
+function normalizeSensors(s) {
+  return {
+    G:   Math.min(s.gas        / 1000, 1),
+    M:   s.motion ? 1 : 0,
+    H:   Math.min(s.humidity   / 100, 1),
+    AQ:  Math.min(s.air_quality / 500, 1),
+    Rad: Math.min(s.radiation  / 10, 1),
+    Vib: Math.min(s.vibration  / 10, 1),
+    ML:  Math.min(s.machine_load / 100, 1),
+    N:   Math.min(s.noise      / 120, 1),
+    P:   Math.min(Math.abs(s.pressure - 101) / 99, 1),
+    WD:  Math.min(s.worker_density / 20, 1),
+    F:   Math.min(s.fatigue    / 10, 1),
+    FK:  Math.min(s.forklift   / 10, 1),
+    D:   s.door_state ? 1 : 0,
+    Vent:1.0 - Math.min(s.ventilation / 100, 1),
+  };
+}
+
+function computeTempTrend(history) {
+  if(history.length < 2) return 0;
+  return Math.min(Math.abs(history[history.length-1] - history[0]) / 15, 1);
+}
+
+function computeRisk(s, tempTrend) {
+  const n = normalizeSensors(s);
+  const wg = W.gas * (1 + ALPHA * n.M);
+  const terms = {
+    'Gas':          wg         * n.G,
+    'Motion':       W.motion   * n.M,
+    'Temp Trend':   W.temp_trend * tempTrend,
+    'Humidity':     W.humidity * n.H,
+    'Air Quality':  W.air_quality * n.AQ,
+    'Radiation':    W.radiation * n.Rad,
+    'Vibration':    W.vibration * n.Vib,
+    'Machine Load': W.machine_load * n.ML,
+    'Noise':        W.noise    * n.N,
+    'Pressure':     W.pressure * n.P,
+    'Workers':      W.worker_density * n.WD,
+    'Fatigue':      W.fatigue  * n.F,
+    'Forklift':     W.forklift * n.FK,
+    'Door':         W.door_state * n.D,
+    'Ventilation':  -W.ventilation * (1 - n.Vent),
+  };
+  let R = Object.values(terms).reduce((a,b)=>a+b, 0);
+  R = Math.max(0, Math.min(1, R));
+  const state = R >= 0.60 ? 'DANGER' : R >= 0.30 ? 'WARNING' : 'SAFE';
+  const vent_on = n.G > 0.5 || R >= 0.60;
+  const pred_warning = tempTrend > 0.5 && state === 'SAFE';
+  const contribs = Object.entries(terms).map(([name,val])=>({name,val})).sort((a,b)=>Math.abs(b.val)-Math.abs(a.val));
+  return { R, state, vent_on, terms, contribs, norm:n, tempTrend, pred_warning };
+}
+
+function getState(R) { return R>=0.60?'DANGER':R>=0.30?'WARNING':'SAFE'; }
+
+// ═══════════════════════════════════════════════════════════
+// ZONE DATA & SIMULATION STATE
+// ═══════════════════════════════════════════════════════════
+let activeZone = 'A';
+let scenario = 'auto';
+let tick = 0, autoPhase = 0, autoTimer = 0;
+let orbiting = true;
+
+// Per-zone sensor values (smooth-interpolated)
+const zoneValues = {
+  A: { gas:25,  temperature:22, humidity:55, air_quality:45, radiation:0.1, vibration:0.4, machine_load:30, noise:55, pressure:101, motion:false, worker_density:2, fatigue:2, forklift:1, door_state:false, ventilation:85 },
+  B: { gas:120, temperature:44, humidity:55, air_quality:65, radiation:0.1, vibration:1.2, machine_load:80, noise:88, pressure:101, motion:false, worker_density:8, fatigue:3, forklift:3, door_state:false, ventilation:75 },
+  C: { gas:55,  temperature:30, humidity:60, air_quality:50, radiation:0.1, vibration:0.7, machine_load:60, noise:70, pressure:101, motion:false, worker_density:6, fatigue:3, forklift:2, door_state:false, ventilation:80 },
+  D: { gas:15,  temperature:21, humidity:50, air_quality:35, radiation:0.1, vibration:0.3, machine_load:18, noise:44, pressure:101, motion:false, worker_density:1, fatigue:1, forklift:0, door_state:false, ventilation:90 },
+};
+const tempHistory = { A:[], B:[], C:[], D:[] };
+const zoneRisk = { A:0, B:0, C:0, D:0 };
+let lastState = '';
+
+// Scenario presets
+const scenarios = {
+  safe:   { gas:20,   temperature:25, humidity:50, air_quality:35, radiation:0.05, vibration:0.3, machine_load:25, noise:50, pressure:101, motion:false, worker_density:2, fatigue:1, forklift:0, door_state:false, ventilation:90 },
+  leak:   { gas:600,  temperature:28, humidity:58, air_quality:200, radiation:0.1, vibration:0.5, machine_load:40, noise:60, pressure:101, motion:false, worker_density:3, fatigue:2, forklift:1, door_state:true,  ventilation:40 },
+  hot:    { gas:80,   temperature:78, humidity:70, air_quality:80,  radiation:0.1, vibration:1.0, machine_load:85, noise:90, pressure:101, motion:true,  worker_density:7, fatigue:5, forklift:2, door_state:false, ventilation:60 },
+  chem:   { gas:350,  temperature:55, humidity:80, air_quality:320, radiation:2.5, vibration:0.8, machine_load:55, noise:75, pressure:103, motion:true,  worker_density:5, fatigue:4, forklift:3, door_state:true,  ventilation:30 },
+  danger: { gas:780,  temperature:72, humidity:75, air_quality:380, radiation:0.2, vibration:4.5, machine_load:95, noise:108, pressure:103.5, motion:true, worker_density:10, fatigue:7, forklift:4, door_state:true, ventilation:20 },
+};
+
+// Auto simulation phases
+const autoPhases = [
+  { label:'Normal operations',     gas:30,  temperature:26, humidity:54, air_quality:42, radiation:0.08, vibration:0.4, machine_load:35, noise:58, pressure:101, motion:false, worker_density:2, fatigue:1, forklift:1, door_state:false, ventilation:88, dur:140 },
+  { label:'Worker enters zone',    gas:30,  temperature:27, humidity:55, air_quality:44, radiation:0.08, vibration:0.5, machine_load:40, noise:62, pressure:101, motion:true,  worker_density:4, fatigue:2, forklift:1, door_state:false, ventilation:85, dur:80 },
+  { label:'Temperature rising',    gas:35,  temperature:58, humidity:60, air_quality:60, radiation:0.1,  vibration:0.8, machine_load:70, noise:78, pressure:101, motion:true,  worker_density:5, fatigue:3, forklift:2, door_state:false, ventilation:75, dur:100 },
+  { label:'Gas leak detected!',    gas:480, temperature:62, humidity:65, air_quality:180, radiation:0.1, vibration:1.2, machine_load:75, noise:85, pressure:102, motion:true,  worker_density:6, fatigue:4, forklift:2, door_state:true,  ventilation:45, dur:100 },
+  { label:'CRITICAL — evacuate',   gas:740, temperature:68, humidity:70, air_quality:360, radiation:0.15,vibration:2.5, machine_load:90, noise:100,pressure:103, motion:true,  worker_density:8, fatigue:6, forklift:3, door_state:true,  ventilation:20, dur:80 },
+  { label:'Ventilation activated', gas:220, temperature:55, humidity:62, air_quality:130, radiation:0.1, vibration:1.0, machine_load:60, noise:75, pressure:102, motion:false, worker_density:3, fatigue:4, forklift:1, door_state:false, ventilation:90, dur:100 },
+  { label:'System cooling down',   gas:60,  temperature:35, humidity:56, air_quality:50,  radiation:0.08, vibration:0.5, machine_load:40, noise:60, pressure:101, motion:false, worker_density:2, fatigue:2, forklift:1, door_state:false, ventilation:88, dur:100 },
+];
+
+// Manual values
+let manualVals = { ...autoPhases[0] };
+
+// ═══════════════════════════════════════════════════════════
+// CAMERA & INTERACTION
+// ═══════════════════════════════════════════════════════════
+let camAngle = Math.atan2(camera.position.z, camera.position.x);
+let camTarget = {x:0, y:1, z:0};
+let dragStart = null, camAngleOnDrag = 0;
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const tooltip = document.getElementById('tooltip');
+
+canvas.addEventListener('mousedown', e => {
+  if(e.button===0) { dragStart={x:e.clientX}; camAngleOnDrag=camAngle; }
+});
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  if(dragStart) {
+    const dx = e.clientX - dragStart.x;
+    camAngle = camAngleOnDrag - dx*0.008;
+    const r=11;
+    camera.position.x = Math.cos(camAngle)*r;
+    camera.position.z = Math.sin(camAngle)*r*0.75;
+    tooltip.style.display='none'; return;
+  }
+  mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+  let hit=false;
+  sensors.forEach(s => {
+    const ix = raycaster.intersectObject(s.head, false);
+    if(ix.length>0) {
+      const sv = zoneValues[activeZone];
+      tooltip.style.display='block';
+      tooltip.style.left=(e.clientX-rect.left+12)+'px';
+      tooltip.style.top=(e.clientY-rect.top-20)+'px';
+      tooltip.innerHTML=`<b>${s.label}</b>Type: ${s.type.toUpperCase()}<br>Zone: ${activeZone}<br>Risk: ${(zoneRisk[activeZone]*100).toFixed(1)}%`;
+      hit=true;
+    }
+  });
+  if(!hit) tooltip.style.display='none';
+});
+canvas.addEventListener('mouseup', () => { dragStart=null; });
+canvas.addEventListener('mouseleave', () => { dragStart=null; tooltip.style.display='none'; });
+canvas.addEventListener('click', e => {
+  if(Math.abs(e.movementX||0)>3) return;
+  const rect = canvas.getBoundingClientRect();
+  mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouse,camera);
+  sensors.forEach(s => {
+    const ix=raycaster.intersectObject(s.head,false);
+    if(ix.length>0) camTarget={x:s.x,y:s.y,z:s.z};
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// LOG
+// ═══════════════════════════════════════════════════════════
+const logEl = document.getElementById('log');
+function addLog(msg, cls) {
+  const d=new Date();
+  const ts=`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
+  const div=document.createElement('div');
+  div.className=cls||''; div.textContent=`[${ts}] ${msg}`;
+  logEl.prepend(div);
+  while(logEl.children.length>14) logEl.removeChild(logEl.lastChild);
+}
+
+// ═══════════════════════════════════════════════════════════
+// UI UPDATE
+// ═══════════════════════════════════════════════════════════
+function riskColor(R) {
+  if(R>=0.60) return '#ff2d2d';
+  if(R>=0.30) return '#ffa500';
+  return '#00e57a';
+}
+
+function updatePanelUI(sv, result) {
+  const R = result.R;
+  const state = result.state;
+  const rc = riskColor(R);
+
+  document.getElementById('risk-value').textContent = R.toFixed(2);
+  document.getElementById('risk-value').style.color  = rc;
+  document.getElementById('risk-state').textContent  = state;
+  document.getElementById('risk-state').style.color  = rc;
+  document.getElementById('risk-bar').style.width    = (R*100).toFixed(1)+'%';
+  document.getElementById('risk-bar').style.background = rc;
+
+  const badge = document.getElementById('state-badge');
+  badge.textContent = state;
+  if(state==='SAFE')    { badge.style.cssText='background:rgba(0,80,40,.3);color:#00e57a;border-color:#00e57a;margin:0 14px 10px;padding:8px;border-radius:4px;font-family:var(--mono);font-size:11px;letter-spacing:3px;text-align:center;border:1px solid;'; }
+  if(state==='WARNING') { badge.style.cssText='background:rgba(80,50,0,.3);color:#ffa500;border-color:#ffa500;margin:0 14px 10px;padding:8px;border-radius:4px;font-family:var(--mono);font-size:11px;letter-spacing:3px;text-align:center;border:1px solid;'; }
+  if(state==='DANGER')  { badge.style.cssText='background:rgba(80,0,0,.3);color:#ff2d2d;border-color:#ff2d2d;margin:0 14px 10px;padding:8px;border-radius:4px;font-family:var(--mono);font-size:11px;letter-spacing:3px;text-align:center;border:1px solid;'; }
+
+  // Predictive warning
+  const pw = document.getElementById('pred-warning');
+  pw.style.display = result.pred_warning ? 'block' : 'none';
+
+  // Vent header
+  const vh = document.getElementById('hdr-vent');
+  vh.className = result.vent_on ? 'on' : 'off';
+  vh.textContent = result.vent_on ? '● VENT ON' : '○ VENT OFF';
+
+  // Alarm overlay
+  const overlay = document.getElementById('alarm-overlay');
+  overlay.className = state==='DANGER'?'danger':state==='WARNING'?'warning':'';
+
+  // Primary sensors
+  const n = result.norm;
+  const t = result.terms;
+
+  setSensor('gas',    sv.gas.toFixed(0)+' ppm',   n.G,   t['Gas'],    n.G>0.6?'#ff2d2d':n.G>0.3?'#ffa500':'#3a7fff');
+  setSensor('temp',   sv.temperature.toFixed(1)+'°C', Math.max(0,Math.min((sv.temperature-25)/65,1)), t['Gas'], '#ff8800');
+  // temp trend
+  const tt = result.tempTrend;
+  setSensor('ttrend', tt.toFixed(3), tt, t['Temp Trend'], tt>0.6?'#ff2d2d':tt>0.3?'#ffa500':'#ffa500');
+  // trend badge
+  const trendBadge = document.getElementById('trend-badge');
+  let trendClass='trend-stable', trendTxt='STABLE';
+  if(tt>0.6) { trendClass='trend-rising-fast'; trendTxt='RISING↑↑'; }
+  else if(tt>0.3) { trendClass='trend-rising'; trendTxt='RISING↑'; }
+  trendBadge.className='trend-badge '+trendClass; trendBadge.textContent=trendTxt;
+
+  setSensor('motion', sv.motion?'YES':'NO', sv.motion?1:0, t['Motion'], '#aa44ff');
+  setSensor('aq',     sv.air_quality.toFixed(0)+' AQI', n.AQ, t['Air Quality'], n.AQ>0.6?'#ff2d2d':n.AQ>0.3?'#ffa500':'#44aaff');
+
+  // Environmental
+  setSensor('hum',    sv.humidity.toFixed(0)+'%',          n.H,   t['Humidity'], '#22aadd');
+  setSensor('rad',    sv.radiation.toFixed(2)+' mSv',      n.Rad, t['Radiation'],'#88ee44');
+  setSensor('pres',   sv.pressure.toFixed(1)+' kPa',       n.P,   t['Pressure'], '#88aaff');
+  setSensor('vent',   sv.ventilation.toFixed(0)+'%',       1-n.Vent, t['Ventilation'], '#00e57a');
+
+  // Operational
+  setSensor('vib',    sv.vibration.toFixed(1)+' g',        n.Vib, t['Vibration'], '#ffaa44');
+  setSensor('ml',     sv.machine_load.toFixed(0)+'%',      n.ML,  t['Machine Load'], '#ff6644');
+  setSensor('noise',  sv.noise.toFixed(0)+' dB',           n.N,   t['Noise'], '#ddaa22');
+
+  // Human
+  setSensor('wd',     sv.worker_density.toFixed(1)+' /zone', n.WD, t['Workers'], '#aa88ff');
+  setSensor('fat',    sv.fatigue.toFixed(1)+' /10',         n.F,   t['Fatigue'], '#ff88aa');
+  setSensor('fk',     sv.forklift.toFixed(1)+' /10',        n.FK,  t['Forklift'],'#ffcc44');
+
+  // Door
+  document.getElementById('sv-door').textContent = sv.door_state ? 'OPEN' : 'CLOSED';
+
+  // Contributions list
+  renderContribs(result.contribs);
+
+  // Info
+  document.getElementById('ov-ttrend').textContent = tt.toFixed(3);
+  document.getElementById('ov-zone').textContent   = activeZone;
+  document.getElementById('ov-vent-auto').textContent = result.vent_on ? 'ON (auto)' : 'OFF';
+  document.getElementById('ov-pred').textContent   = '—';
+
+  // Zone legend tabs
+  Object.entries(zoneRisk).forEach(([z,r]) => {
+    const tab = document.querySelector(`.ztab[data-zone="${z}"]`);
+    const dot = tab?.querySelector('.zdot');
+    if(dot) dot.style.background = riskColor(r);
+  });
+
+  // State change
+  if(state !== lastState) {
+    addLog(`Zone ${activeZone} → ${state} (R=${R.toFixed(2)})`, state==='DANGER'?'l-danger':state==='WARNING'?'l-warn':'l-safe');
+    lastState = state;
+  }
+}
+
+function setSensor(id, valTxt, normVal, contrib, barColor) {
+  const ve=document.getElementById('sv-'+id);
+  const be=document.getElementById('sb-'+id);
+  const ce=document.getElementById('sc-'+id);
+  if(ve) ve.textContent=valTxt;
+  if(be) { be.style.width=(Math.max(0,normVal)*100).toFixed(1)+'%'; be.style.background=barColor; }
+  if(ce) ce.textContent='contrib: '+(contrib!==undefined?contrib.toFixed(4):'—');
+}
+
+function renderContribs(contribs) {
+  const list = document.getElementById('contrib-list');
+  const maxAbs = Math.max(...contribs.map(c=>Math.abs(c.val)), 0.001);
+  list.innerHTML = contribs.slice(0,10).map(c => {
+    const pct = (Math.abs(c.val)/maxAbs*100).toFixed(1);
+    const col = c.val < 0 ? '#00e57a' : Math.abs(c.val) > maxAbs*0.5 ? '#ff2d2d' : Math.abs(c.val) > maxAbs*0.25 ? '#ffa500' : '#3a7fff';
+    const sign = c.val >= 0 ? '+' : '';
+    return `<div class="contrib-row">
+      <span class="contrib-lbl">${c.name}</span>
+      <div class="contrib-bar-bg"><div class="contrib-bar-fill" style="width:${pct}%;background:${col}"></div></div>
+      <span class="contrib-val">${sign}${c.val.toFixed(4)}</span>
+    </div>`;
+  }).join('');
+}
+
+function updateSliderLabels(sv) {
+  document.getElementById('lv-gas').textContent   = sv.gas.toFixed(0)+' ppm';
+  document.getElementById('lv-temp').textContent  = sv.temperature.toFixed(1)+'°C';
+  document.getElementById('lv-hum').textContent   = sv.humidity.toFixed(0)+'%';
+  document.getElementById('lv-aq').textContent    = sv.air_quality.toFixed(0)+' AQI';
+  document.getElementById('lv-rad').textContent   = sv.radiation.toFixed(2)+' mSv';
+  document.getElementById('lv-vib').textContent   = sv.vibration.toFixed(1)+' g';
+  document.getElementById('lv-ml').textContent    = sv.machine_load.toFixed(0)+'%';
+  document.getElementById('lv-noise').textContent = sv.noise.toFixed(0)+' dB';
+  document.getElementById('lv-pres').textContent  = sv.pressure.toFixed(1)+' kPa';
+  document.getElementById('lv-wd').textContent    = sv.worker_density.toFixed(1)+' /zone';
+  document.getElementById('lv-fat').textContent   = sv.fatigue.toFixed(1)+' /10';
+  document.getElementById('lv-fk').textContent    = sv.forklift.toFixed(1)+' /10';
+  document.getElementById('lv-vent').textContent  = sv.ventilation.toFixed(0)+'%';
+  document.getElementById('lv-motion').textContent = sv.motion ? 'ON' : 'OFF';
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONTROLS
+// ═══════════════════════════════════════════════════════════
+function selectZone(z) {
+  activeZone = z;
+  document.querySelectorAll('.ztab').forEach(t=>t.classList.toggle('active', t.dataset.zone===z));
+  document.getElementById('zone-label-ctrl').textContent = z;
+  document.getElementById('ov-zone').textContent = z;
+  loadSliders(z);
+  lastState = '';
+}
+
+function loadSliders(z) {
+  const sv = zoneValues[z];
+  document.getElementById('sl-gas').value   = sv.gas;
+  document.getElementById('sl-temp').value  = sv.temperature;
+  document.getElementById('sl-hum').value   = sv.humidity;
+  document.getElementById('sl-aq').value    = sv.air_quality;
+  document.getElementById('sl-rad').value   = sv.radiation;
+  document.getElementById('sl-vib').value   = sv.vibration;
+  document.getElementById('sl-ml').value    = sv.machine_load;
+  document.getElementById('sl-noise').value = sv.noise;
+  document.getElementById('sl-pres').value  = sv.pressure;
+  document.getElementById('sl-wd').value    = sv.worker_density;
+  document.getElementById('sl-fat').value   = sv.fatigue;
+  document.getElementById('sl-fk').value    = sv.forklift;
+  document.getElementById('sl-vent').value  = sv.ventilation;
+  document.getElementById('sl-motion').checked    = sv.motion;
+  document.getElementById('door-toggle').checked  = sv.door_state;
+  updateSliderLabels(sv);
+}
+
+function manualMode() {
+  scenario = 'manual';
+  document.querySelectorAll('.scene-btn').forEach(b=>b.classList.remove('active'));
+  const sv = zoneValues[activeZone];
+  sv.gas            = +document.getElementById('sl-gas').value;
+  sv.temperature    = +document.getElementById('sl-temp').value;
+  sv.humidity       = +document.getElementById('sl-hum').value;
+  sv.air_quality    = +document.getElementById('sl-aq').value;
+  sv.radiation      = +document.getElementById('sl-rad').value;
+  sv.vibration      = +document.getElementById('sl-vib').value;
+  sv.machine_load   = +document.getElementById('sl-ml').value;
+  sv.noise          = +document.getElementById('sl-noise').value;
+  sv.pressure       = +document.getElementById('sl-pres').value;
+  sv.worker_density = +document.getElementById('sl-wd').value;
+  sv.fatigue        = +document.getElementById('sl-fat').value;
+  sv.forklift       = +document.getElementById('sl-fk').value;
+  sv.ventilation    = +document.getElementById('sl-vent').value;
+  sv.motion         = document.getElementById('sl-motion').checked;
+  sv.door_state     = document.getElementById('door-toggle').checked;
+  updateSliderLabels(sv);
+}
+
+function setScenario(s) {
+  scenario = s;
+  document.querySelectorAll('.scene-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+s)?.classList.add('active');
+  if(s==='auto') {
+    autoPhase=0; autoTimer=0;
+    addLog('Auto simulation restarted','l-safe');
+  } else {
+    const sc = scenarios[s];
+    Object.assign(zoneValues[activeZone], sc);
+    manualVals = {...sc};
+    loadSliders(activeZone);
+    addLog(`Scenario: ${s.toUpperCase()}`,'l-safe');
+  }
+}
+
+function toggleOrbit() {
+  orbiting = !orbiting;
+  const btn = document.getElementById('btn-orbit');
+  btn.classList.toggle('active', orbiting);
+  btn.textContent = orbiting ? '⟳ AUTO-ORBIT ON' : '⟳ AUTO-ORBIT OFF';
+}
+
+// ═══════════════════════════════════════════════════════════
+// LERP HELPER
+// ═══════════════════════════════════════════════════════════
+function lerp(a,b,t) { return a+(b-a)*t; }
+
+// ═══════════════════════════════════════════════════════════
+// MAIN ANIMATION LOOP
+// ═══════════════════════════════════════════════════════════
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  tick++;
+
+  // ── Get target values for active zone ──
+  let target;
+  if(scenario === 'auto') {
+    autoTimer++;
+    const ph = autoPhases[autoPhase];
+    if(autoTimer >= ph.dur) {
+      autoPhase = (autoPhase+1) % autoPhases.length;
+      autoTimer = 0;
+      const nextPh = autoPhases[autoPhase];
+      addLog(nextPh.label, autoPhase>=4?'l-danger':autoPhase>=2?'l-warn':'l-safe');
+    }
+    target = autoPhases[autoPhase];
+  } else {
+    target = zoneValues[activeZone];
+  }
+
+  // ── Smooth interpolation for active zone ──
+  const sv = zoneValues[activeZone];
+  const k = 0.04; // smoothing factor
+  sv.gas            = lerp(sv.gas,            target.gas, k);
+  sv.temperature    = lerp(sv.temperature,    target.temperature, k);
+  sv.humidity       = lerp(sv.humidity,       target.humidity, k);
+  sv.air_quality    = lerp(sv.air_quality,    target.air_quality, k);
+  sv.radiation      = lerp(sv.radiation,      target.radiation, k*0.5);
+  sv.vibration      = lerp(sv.vibration,      target.vibration, k);
+  sv.machine_load   = lerp(sv.machine_load,   target.machine_load, k);
+  sv.noise          = lerp(sv.noise,          target.noise, k);
+  sv.pressure       = lerp(sv.pressure,       target.pressure, k*0.3);
+  sv.worker_density = lerp(sv.worker_density, target.worker_density, k*0.5);
+  sv.fatigue        = lerp(sv.fatigue,        target.fatigue, k*0.3);
+  sv.forklift       = lerp(sv.forklift,       target.forklift, k*0.5);
+  sv.ventilation    = lerp(sv.ventilation,    target.ventilation, k*0.5);
+  if(scenario === 'auto') {
+    sv.motion     = target.motion;
+    sv.door_state = target.door_state;
+  }
+
+  // ── Temperature history for T-trend ──
+  if(tick % 20 === 0) {
+    const th = tempHistory[activeZone];
+    th.push(sv.temperature);
+    if(th.length > 10) th.shift();
+  }
+  const tempTrend = computeTempTrend(tempHistory[activeZone]);
+
+  // ── Compute risk ──
+  const result = computeRisk(sv, tempTrend);
+  zoneRisk[activeZone] = result.R;
+
+  // ── Update panel UI ──
+  updatePanelUI(sv, result);
+  document.getElementById('tick-counter').textContent = 'TICK: '+tick;
+
+  // ── Update 3D scene ──
+  const t0 = Date.now()*0.001;
+  const gasN  = result.norm.G;
+  const tempN = Math.max(0, Math.min((sv.temperature-25)/65, 1));
+  const motN  = result.norm.M;
+  const R     = result.R;
+
+  // Gas particles
+  gasParticles.forEach(p => {
+    p.userData.life += 0.008;
+    if(p.userData.life>1) {
+      p.position.set(-5+(Math.random()*2-1)*.8, 2, -5+(Math.random()*2-1)*.8);
+      p.userData.life=0;
+    }
+    p.position.x += p.userData.vx;
+    p.position.y += p.userData.vy;
+    p.position.z += p.userData.vz;
+    const fade = Math.sin(p.userData.life*Math.PI);
+    p.material.opacity = gasN * fade * 0.7;
+    p.material.color.setHex(gasN>0.6?0xff2d2d:gasN>0.3?0xffa500:0x4488ff);
+  });
+
+  // Heat particles
+  heatParticles.forEach(p => {
+    p.userData.life += 0.012;
+    if(p.userData.life>1) {
+      p.position.set(p.userData.ox+(Math.random()-.5)*.5, 2.4, p.userData.oz+(Math.random()-.5)*.5);
+      p.userData.life=0;
+    }
+    p.position.y += p.userData.vy;
+    const fade = Math.sin(p.userData.life*Math.PI);
+    p.material.opacity = tempN * fade * 0.6;
+    p.material.color.setHex(tempN>0.6?0xff2200:0xff8800);
+  });
+
+  // Worker
+  workerGroup.visible = sv.motion && motN>0.3;
+  if(workerGroup.visible) {
+    workerGroup.position.x = 4+Math.sin(tick*.02)*.5;
+    workerGroup.rotation.y = Math.sin(tick*.01)*.3;
+  }
+  pirCone.visible = sv.motion;
+
+  // Door state (door color on wall)
+  doorMesh.material.color.setHex(sv.door_state ? 0x0a3320 : 0x001a33);
+  doorMesh.material.emissive.setHex(sv.door_state ? 0x003a18 : 0x000820);
+
+  // Sensor heads pulse
+  sensors.forEach(s => {
+    let intensity = 0.3, col = 0x4488ff;
+    if(s.type==='gas')  { intensity=0.3+gasN*1.2;  col=gasN>0.6?0xff2d2d:gasN>0.3?0xffa500:0x4488ff; }
+    if(s.type==='temp') { intensity=0.3+tempN*1.2; col=tempN>0.6?0xff2200:tempN>0.3?0xff8800:0x4488ff; }
+    if(s.type==='pir')  { intensity=0.3+motN*1.0;  col=motN>0.5?0xaa44ff:0x664488; }
+    if(s.type==='aq')   { intensity=0.3+result.norm.AQ*1.0; col=result.norm.AQ>0.5?0xff4400:0x44aaff; }
+    if(s.type==='vib')  { intensity=0.3+result.norm.Vib*1.2; col=result.norm.Vib>0.5?0xffaa00:0xffaa44; }
+    if(s.type==='rad')  { intensity=0.3+result.norm.Rad*1.5; col=result.norm.Rad>0.3?0xaaff00:0x88ee44; }
+    s.head.material.emissiveIntensity = intensity*(0.8+Math.sin(t0*3)*.2);
+    s.head.material.emissive.setHex(col);
+    s.light.color.setHex(col);
+    s.light.intensity = intensity*0.5;
+    s.ring.material.emissive.setHex(col);
+    s.ring.rotation.z = t0*(s.type==='gas'?.5:s.type==='temp'?.8:s.type==='pir'?1.2:1.0);
+  });
+
+  // LED indicator
+  let ledCol = 0x00ff44;
+  if(result.state==='WARNING') ledCol=0xffa500;
+  if(result.state==='DANGER')  ledCol=tick%20<10?0xff2200:0x440000;
+  led.material.color.setHex(ledCol);
+  led.material.emissive.setHex(ledCol);
+  ledLight.color.setHex(ledCol);
+  ledLight.intensity = result.state==='DANGER'?(1.5+Math.sin(t0*8)*.5):0.8;
+
+  // Vibration effect on machinery
+  if(sv.vibration > 2) {
+    const vAmt = (sv.vibration/9)*0.04;
+    scene.position.x = Math.sin(t0*15)*vAmt;
+    scene.position.z = Math.cos(t0*12)*vAmt;
+  } else {
+    scene.position.x = lerp(scene.position.x, 0, 0.1);
+    scene.position.z = lerp(scene.position.z, 0, 0.1);
+  }
+
+  // Camera orbit
+  if(orbiting) {
+    camAngle += 0.003;
+    const r=11;
+    camera.position.x = Math.cos(camAngle)*r;
+    camera.position.z = Math.sin(camAngle)*r*0.75;
+    camera.position.y = 7+Math.sin(camAngle*.5)*1.5;
+  }
+  camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
+
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+loadSliders('A');
+addLog('System initialized — 15-sensor fusion active', 'l-safe');
+addLog('Sensors: MQ-2, DHT22, PIR, AQI, Vibration, Radiation +9', 'l-safe');
+addLog('Algorithm: Dynamic weighted fusion with T-trend', 'l-safe');
+addLog('Auto simulation running — Zone A active', 'l-safe');
+animate();
+</script>
+</body>
+</html>

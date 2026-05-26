@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Smart Factory — 3D Simulation</title>
+<link rel="stylesheet" href="/static/styles.css"/>
+<style>
+body { overflow: hidden; }
+#app {
+  display: flex; flex-direction: column; height: 100vh;
+}
+#scene-wrap {
+  flex: 1; display: flex; overflow: hidden; position: relative;
+}
+#canvas-container {
+  flex: 1; position: relative; overflow: hidden;
+  background: #070c1a;
+}
+canvas#three { display: block; width: 100%; height: 100%; }
+
+/* ── Overlay panels on canvas ────────────────────────────────── */
+#risk-overlay {
+  position: absolute; top: 12px; left: 12px; z-index: 10;
+  background: var(--glass); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; min-width: 170px;
+  backdrop-filter: blur(12px);
+}
+#risk-overlay .lbl { font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text2); }
+#risk-overlay .score { font-family:var(--mono);font-size:36px;font-weight:400;line-height:1;margin:2px 0; }
+#risk-overlay .state { font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase; }
+#risk-overlay .sep2 { height:1px;background:var(--border);margin:8px 0; }
+#risk-overlay .info-row { display:flex;justify-content:space-between;font-size:10px;padding:1px 0; }
+#risk-overlay .info-row .k { color:var(--text2); }
+#risk-overlay .info-row .v { font-family:var(--mono);color:var(--text1); }
+
+#zone-legend {
+  position: absolute; bottom: 12px; left: 12px; z-index: 10;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.zone-legend-item {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--glass); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 10px;
+  backdrop-filter: blur(10px); font-size: 11px;
+  transition: border-color .3s;
+}
+.zone-legend-item .zdot { width: 9px; height: 9px; border-radius: 2px; }
+.zone-legend-item .zname { color: var(--text1); font-weight: 600; min-width: 58px; }
+.zone-legend-item .zscore { font-family:var(--mono); font-size:10px; color:var(--cyan); min-width:36px; }
+.zone-legend-item .ztag { }
+
+#sensor-tooltip {
+  position: absolute; z-index: 20;
+  background: var(--bg0); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 10px 13px;
+  pointer-events: none; display: none;
+  min-width: 180px; font-size: 11px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+}
+#sensor-tooltip .tt-title { font-weight:700;color:var(--cyan);margin-bottom:5px;font-size:12px; }
+#sensor-tooltip .tt-row { display:flex;justify-content:space-between;gap:16px;padding:1px 0; }
+#sensor-tooltip .tt-k { color:var(--text2); }
+#sensor-tooltip .tt-v { font-family:var(--mono);color:var(--text1); }
+
+#camera-hint {
+  position: absolute; bottom: 12px; right: 12px; z-index: 10;
+  background: var(--glass); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 11px; font-size: 9px;
+  color: var(--text2); backdrop-filter: blur(10px); line-height: 1.7;
+}
+#alarm-banner {
+  display: none; position: absolute; top: 0; left: 0; right: 0;
+  z-index: 30; padding: 8px 16px;
+  background: linear-gradient(90deg, rgba(255,23,68,.9) 0%, rgba(200,0,40,.9) 100%);
+  font-size: 12px; font-weight: 700; text-align: center; letter-spacing: 1px;
+  animation: banner-flash .5s ease-in-out infinite; color: #fff;
+}
+@keyframes banner-flash { 0%,100%{opacity:1} 50%{opacity:.75} }
+
+/* ── Control Panel (right sidebar) ─────────────────────────────── */
+#control-panel {
+  width: 300px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+#ctrl-head {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+#ctrl-title { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--cyan); }
+#zone-selector { display: flex; gap: 4px; }
+.zsel-btn {
+  padding: 3px 9px; border-radius: 3px; font-size: 10px; font-weight: 700;
+  cursor: pointer; border: 1px solid var(--border2);
+  background: var(--bg2); color: var(--text2); transition: all .15s;
+}
+.zsel-btn.active { background: var(--cyan-dim); color: var(--cyan); border-color: var(--cyan); }
+
+/* risk meter inside panel */
+#ctrl-risk {
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+.ctrl-score { font-family:var(--mono);font-size:38px;font-weight:400;line-height:1;transition:color .3s; }
+.ctrl-state { font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;transition:color .3s; }
+
+#sensor-scroll { flex: 1; overflow-y: auto; }
+.sensor-item {
+  padding: 9px 14px; border-bottom: 1px solid rgba(30,46,74,.4);
+  transition: background .15s;
+}
+.sensor-item:hover { background: rgba(20,32,60,.5); }
+.si-row { display:flex;justify-content:space-between;align-items:center;margin-bottom:4px; }
+.si-label { font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2); }
+.si-value { font-family:var(--mono);font-size:12px;color:var(--cyan); }
+.si-bar { height:3px;border-radius:2px;background:var(--border2);overflow:hidden;margin-bottom:5px; }
+.si-fill { height:100%;border-radius:2px;transition:width .3s,background .3s; }
+.si-toggle { display:flex;align-items:center;justify-content:space-between; }
+
+/* contribution section */
+#ctrl-contrib { padding: 10px 14px; border-top: 1px solid var(--border); }
+.ctrl-contrib-title { font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:7px; }
+</style>
+</head>
+<body>
+
+<!-- alarm overlay -->
+<div id="alarm-overlay"></div>
+
+<!-- ── App shell ─────────────────────────────────────────────── -->
+<div id="app">
+
+  <!-- Header -->
+  <header class="page-header">
+    <div class="logo">
+      <div class="logo-hex">⬡</div>
+      <div>
+        <div class="logo-text">Adaptive Safety Digital Twin</div>
+        <div class="logo-sub">Smart Factory — 3D Simulation</div>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="/" class="nav-link active">3D Simulation</a>
+      <a href="/dashboard" class="nav-link">Supervisor Dashboard</a>
+    </nav>
+    <div class="header-right">
+      <div class="vent-chip off" id="hdr-vent"><span>○</span> VENT OFF</div>
+      <div class="status-chip safe" id="hdr-status">
+        <span class="chip-dot pulse"></span>
+        <span id="hdr-status-text">SYSTEM SAFE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Scene + Panel -->
+  <div id="scene-wrap">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container">
+      <canvas id="three"></canvas>
+
+      <!-- Risk overlay top-left -->
+      <div id="risk-overlay">
+        <div class="lbl">Composite Risk R(t)</div>
+        <div class="score safe" id="ov-score">0.000</div>
+        <div class="state safe" id="ov-state">SAFE</div>
+        <div class="sep2"></div>
+        <div class="info-row"><span class="k">R_env</span><span class="v" id="ov-env">—</span></div>
+        <div class="info-row"><span class="k">Amplif.</span><span class="v" id="ov-amp">1.000×</span></div>
+        <div class="info-row"><span class="k">T-trend</span><span class="v" id="ov-trend">—</span></div>
+        <div class="info-row"><span class="k">Zone</span><span class="v" id="ov-zone">A</span></div>
+      </div>
+
+      <!-- Zone legend -->
+      <div id="zone-legend">
+        <div class="zone-legend-item" id="leg-A">
+          <div class="zdot" style="background:#1e6aff"></div>
+          <span class="zname">Zone A</span>
+          <span class="zscore" id="leg-score-A">—</span>
+          <span class="ztag" id="leg-tag-A"></span>
+        </div>
+        <div class="zone-legend-item" id="leg-B">
+          <div class="zdot" style="background:#ff5533"></div>
+          <span class="zname">Zone B</span>
+          <span class="zscore" id="leg-score-B">—</span>
+          <span class="ztag" id="leg-tag-B"></span>
+        </div>
+        <div class="zone-legend-item" id="leg-C">
+          <div class="zdot" style="background:#00cc55"></div>
+          <span class="zname">Zone C</span>
+          <span class="zscore" id="leg-score-C">—</span>
+          <span class="ztag" id="leg-tag-C"></span>
+        </div>
+        <div class="zone-legend-item" id="leg-D">
+          <div class="zdot" style="background:#aa55ff"></div>
+          <span class="zname">Zone D</span>
+          <span class="zscore" id="leg-score-D">—</span>
+          <span class="ztag" id="leg-tag-D"></span>
+        </div>
+      </div>
+
+      <!-- Sensor tooltip (shown on click) -->
+      <div id="sensor-tooltip">
+        <div class="tt-title" id="tt-title">Sensor</div>
+        <div class="tt-row"><span class="tt-k">Zone</span><span class="tt-v" id="tt-zone">—</span></div>
+        <div class="tt-row"><span class="tt-k">Risk</span><span class="tt-v" id="tt-risk">—</span></div>
+        <div class="tt-row"><span class="tt-k">State</span><span class="tt-v" id="tt-state">—</span></div>
+        <div class="tt-row"><span class="tt-k">Gas</span><span class="tt-v" id="tt-gas">—</span></div>
+        <div class="tt-row"><span class="tt-k">Temp</span><span class="tt-v" id="tt-temp">—</span></div>
+        <div class="tt-row" style="margin-top:6px;font-size:9px;">
+          <span style="color:var(--text3)">Click elsewhere to close</span>
+        </div>
+      </div>
+
+      <!-- Alarm banner -->
+      <div id="alarm-banner">⚠ CRITICAL DANGER — IMMEDIATE EVACUATION REQUIRED ⚠</div>
+
+      <!-- Camera hint -->
+      <div id="camera-hint">
+        🖱 Left-drag: pan &nbsp;|&nbsp; Right-drag: rotate<br>
+        Scroll: zoom &nbsp;|&nbsp; WASD / ↑↓←→: move
+      </div>
+    </div><!-- /canvas-container -->
+
+    <!-- ── Control Panel ─────────────────────────────────────── -->
+    <div id="control-panel">
+      <div id="ctrl-head">
+        <span id="ctrl-title">⬡ Sensor Controls</span>
+        <div id="zone-selector">
+          <button class="zsel-btn active" data-z="A">A</button>
+          <button class="zsel-btn" data-z="B">B</button>
+          <button class="zsel-btn" data-z="C">C</button>
+          <button class="zsel-btn" data-z="D">D</button>
+        </div>
+      </div>
+
+      <!-- Risk Meter -->
+      <div id="ctrl-risk">
+        <div class="label" style="margin-bottom:4px;">Risk Score R(t)</div>
+        <div class="ctrl-score safe" id="ctrl-score">0.000</div>
+        <div class="ctrl-state safe" id="ctrl-state">SAFE</div>
+        <div class="risk-bar-bg" style="margin:8px 0;">
+          <div class="risk-bar-fill" id="ctrl-bar" style="width:0%"></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;font-size:9px;color:var(--text2);">
+          <span>● SAFE &lt;0.30</span>
+          <span>● WARN 0.30–0.60</span>
+          <span>● DANGER ≥0.60</span>
+        </div>
+      </div>
+
+      <!-- Sensor sliders (built by JS) -->
+      <div id="sensor-scroll" style="flex:1;overflow-y:auto;"></div>
+
+      <!-- Contributions -->
+      <div id="ctrl-contrib">
+        <div class="ctrl-contrib-title">Sensor Contributions</div>
+        <div id="contrib-list"></div>
+      </div>
+    </div><!-- /control-panel -->
+
+  </div><!-- /scene-wrap -->
+</div><!-- /app -->
+
+<!-- ── Scripts ─────────────────────────────────────────────────── -->
+<script src="/static/scripts.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+'use strict';
+
+/* ================================================================
+   1. SCENE SETUP
+   ================================================================ */
+const canvas     = document.getElementById('three');
+const container  = document.getElementById('canvas-container');
+const renderer   = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+renderer.setSize(container.clientWidth, container.clientHeight);
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x07090f);
+scene.fog        = new THREE.Fog(0x07090f, 80, 160);
+
+const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.5, 500);
+camera.position.set(0, 75, 65);
+camera.lookAt(0, 0, 0);
+
+// Resize handler
+window.addEventListener('resize', () => {
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  camera.aspect = container.clientWidth / container.clientHeight;
+  camera.updateProjectionMatrix();
+});
+
+/* ================================================================
+   2. LIGHTS
+   ================================================================ */
+const ambientLight = new THREE.AmbientLight(0x202845, 0.6);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight(0xffffff, 0.85);
+sunLight.position.set(20, 60, 30);
+sunLight.castShadow = true;
+sunLight.shadow.camera.near = 1; sunLight.shadow.camera.far = 200;
+sunLight.shadow.camera.left = -60; sunLight.shadow.camera.right = 60;
+sunLight.shadow.camera.top =  50; sunLight.shadow.camera.bottom = -50;
+sunLight.shadow.mapSize.set(2048, 2048);
+scene.add(sunLight);
+
+const hemi = new THREE.HemisphereLight(0x2244aa, 0x111122, 0.4);
+scene.add(hemi);
+
+// Alarm point lights (one above each zone, start intensity 0)
+const ZONE_CENTERS = { A:[-25,-17], B:[25,-17], C:[-25,17], D:[25,17] };
+const alarmLights = {};
+Object.entries(ZONE_CENTERS).forEach(([z, [x,zz]]) => {
+  const pl = new THREE.PointLight(0xff1744, 0, 30);
+  pl.position.set(x, 20, zz);
+  scene.add(pl);
+  alarmLights[z] = pl;
+});
+
+/* ================================================================
+   3. FACTORY GEOMETRY
+   ================================================================ */
+const MAT = {
+  floor:   new THREE.MeshLambertMaterial({ color: 0x0e1320 }),
+  wall:    new THREE.MeshLambertMaterial({ color: 0x0c111e }),
+  divider: new THREE.MeshLambertMaterial({ color: 0x141b2e, transparent: true, opacity: 0.8 }),
+  zoneA:   new THREE.MeshLambertMaterial({ color: 0x0d1a30 }),
+  zoneB:   new THREE.MeshLambertMaterial({ color: 0x1e1008 }),
+  zoneC:   new THREE.MeshLambertMaterial({ color: 0x081a0f }),
+  zoneD:   new THREE.MeshLambertMaterial({ color: 0x0d0a1e }),
+  machine: new THREE.MeshPhongMaterial({ color: 0x2a3a4a, shininess: 60 }),
+  machine2:new THREE.MeshPhongMaterial({ color: 0x3a2818, shininess: 40 }),
+  machine3:new THREE.MeshPhongMaterial({ color: 0x1a2a20, shininess: 40 }),
+  machine4:new THREE.MeshPhongMaterial({ color: 0x1a1428, shininess: 80 }),
+  metal:   new THREE.MeshPhongMaterial({ color: 0x445566, shininess: 120 }),
+  body:    new THREE.MeshPhongMaterial({ color: 0x1e3355 }),
+  head:    new THREE.MeshPhongMaterial({ color: 0xddaa88 }),
+  helmet:  new THREE.MeshPhongMaterial({ color: 0xffcc00 }),
+  screen:  new THREE.MeshPhongMaterial({ color: 0x00ccff, emissive: 0x003344 }),
+};
+
+function box(w, h, d, mat, x, y, z, rx=0, ry=0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.rotation.set(rx, ry, 0);
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m); return m;
+}
+
+function cyl(rt, rb, h, seg, mat, x, y, z) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m); return m;
+}
+
+// ── Floor ────────────────────────────────────────────────────────
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(100, 80), MAT.floor
+);
+floor.rotation.x = -Math.PI/2; floor.receiveShadow = true;
+scene.add(floor);
+
+// Grid
+const grid = new THREE.GridHelper(100, 25, 0x1a2540, 0x111828);
+grid.position.y = 0.01; scene.add(grid);
+
+// ── Outer walls ──────────────────────────────────────────────────
+box(100, 12, 1.5, MAT.wall,   0,  6, -40.75);   // N
+box(100, 12, 1.5, MAT.wall,   0,  6,  40.75);   // S
+box(1.5, 12,  80, MAT.wall,  50.75, 6, 0);      // E
+box(1.5, 12,  80, MAT.wall, -50.75, 6, 0);      // W
+
+// ── Zone dividers ─────────────────────────────────────────────── 
+box(100, 8, 0.6, MAT.divider, 0, 4, 0);          // E-W central
+box(0.6,  8, 80, MAT.divider, 0, 4, 0);          // N-S central
+
+// ── Zone floor coloured overlays ─────────────────────────────────
+function zonePlane(mat, x, z, w, d) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+  m.rotation.x = -Math.PI/2; m.position.set(x, 0.02, z);
+  m.receiveShadow = true; scene.add(m); return m;
+}
+zonePlane(MAT.zoneA, -25, -20, 49, 38);
+zonePlane(MAT.zoneB,  25, -20, 49, 38);
+zonePlane(MAT.zoneC, -25,  20, 49, 38);
+zonePlane(MAT.zoneD,  25,  20, 49, 38);
+
+// ── Zone A — Storage ─────────────────────────────────────────────
+// Shelves
+[[-42,-35],[-32,-35],[-22,-35]].forEach(([x,z]) => {
+  box(9, 6, 4, MAT.machine, x, 3, z);
+  [0.5,1.5,2.5].forEach(hy => box(8.8,.2,3.8, new THREE.MeshLambertMaterial({color:0x1e3050}), x, hy*2, z));
+});
+box(4, 2.5, 10, MAT.machine, -12, 1.25, -20); // forklift body
+box(1, 0.5,  3, MAT.metal,   -12, 2.75, -16); // forklift mast
+
+// ── Zone B — Manufacturing ────────────────────────────────────── 
+cyl(3.5, 3.5, 7, 12, MAT.machine2, 14, 3.5, -32);
+cyl(2.5, 2.5, 5, 10, MAT.machine2, 28, 2.5, -30);
+cyl(3, 3.8, 6, 12,   MAT.machine2, 42, 3, -30);
+box(32, 1.2, 4, MAT.metal, 25, 0.6, -20);        // conveyor
+box(1.5, 4, 1.5, MAT.metal, 14, 2, -20);          // robot arm base
+box(4, 1, 1.5, MAT.metal, 16.5, 4.5, -20);        // robot arm
+box(1, 5, 1, MAT.metal,  19, 5, -20);              // robot end
+// Control box
+box(3, 3.5, 2, MAT.screen, 44, 1.75, -18);
+
+// ── Zone C — Assembly ────────────────────────────────────────────
+[[-42,-12,-1],[-30,-11,-1],[-20,-12,-1]].forEach(([x,h,y]) => {
+  box(9, 2, 4, MAT.machine3, x, 1, 18);   // table
+  box(8.8, 1.2, 0.2, MAT.screen, x, 2.1, 16.1); // screen
+});
+cyl(1.5, 2, 5, 10, MAT.machine3, -20, 2.5, 30); // drill press
+box(25, 1, 3, MAT.metal, -30, 0.5, 36);           // conveyor
+
+// ── Zone D — Control Room ────────────────────────────────────────
+[[10,18],[16,18],[22,18]].forEach(([x,z]) =>
+  box(4, 8, 7, MAT.machine4, x, 4, z));           // server racks
+box(22, 4, 2.5, MAT.machine4, 35, 2, 18);          // control panel
+[28,35,42].forEach(x =>
+  box(5, 3, 0.2, MAT.screen, x, 4.5, 17));         // screens
+
+/* ================================================================
+   4. WORKERS
+   ================================================================ */
+const WORKER_POSES = [
+  ['A',-38,-22],['A',-18,-18],
+  ['B', 12,-22],['B', 28,-22],['B', 38,-22],['B', 44,-15],
+  ['C',-38, 22],['C',-20, 28],['C',-12, 20],
+  ['D', 28, 22],['D', 40, 28],
+];
+
+function makeWorker(x, z) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.45, .45, 1.7, 8), MAT.body);
+  body.position.y = 0.85; body.castShadow = true; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.38, 10, 10), MAT.head);
+  head.position.y = 2.05; head.castShadow = true; g.add(head);
+  const helm = new THREE.Mesh(new THREE.SphereGeometry(.42, 10, 8), MAT.helmet);
+  helm.scale.y = 0.5; helm.position.y = 2.22; g.add(helm);
+  // arms
+  [-0.55, 0.55].forEach(ox => {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.18,.18,1.1,6), MAT.body);
+    arm.position.set(ox, 1.1, 0); arm.rotation.z = ox > 0 ? 0.4 : -0.4; g.add(arm);
+  });
+  g.position.set(x, 0, z);
+  scene.add(g); return g;
+}
+const workers = WORKER_POSES.map(([,x,z]) => makeWorker(x, z));
+
+/* ================================================================
+   5. SENSORS
+   ================================================================ */
+const SENSOR_CONFIGS = [
+  // Zone A (3 sensors)
+  { zone:'A', x:-40, z:-30, label:'Gas Sensor A1'  },
+  { zone:'A', x:-22, z:-18, label:'Temp Sensor A2' },
+  { zone:'A', x:-10, z:-28, label:'Rad Sensor A3'  },
+  // Zone B (4 sensors)
+  { zone:'B', x: 12, z:-34, label:'Gas Sensor B1'  },
+  { zone:'B', x: 28, z:-26, label:'Vibr Sensor B2' },
+  { zone:'B', x: 42, z:-34, label:'Noise Sensor B3'},
+  { zone:'B', x: 44, z:-18, label:'Temp Sensor B4' },
+  // Zone C (3 sensors)
+  { zone:'C', x:-42, z: 18, label:'Gas Sensor C1'  },
+  { zone:'C', x:-22, z: 32, label:'Air Sensor C2'  },
+  { zone:'C', x:-10, z: 22, label:'Rad Sensor C3'  },
+  // Zone D (2 sensors)
+  { zone:'D', x: 12, z: 18, label:'Gas Sensor D1'  },
+  { zone:'D', x: 40, z: 30, label:'Temp Sensor D2' },
+];
+
+const sensorObjects = [];   // {group, sphere, zone, label, data}
+const sensorMeshes  = [];   // for raycaster
+
+const SAFE_COLOR   = new THREE.Color(0x00e676);
+const WARN_COLOR   = new THREE.Color(0xffab00);
+const DANGER_COLOR = new THREE.Color(0xff1744);
+
+function makeSensor(cfg) {
+  const g = new THREE.Group();
+
+  // Pole
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 3.5, 8),
+    new THREE.MeshPhongMaterial({ color: 0x334455 })
+  );
+  pole.position.y = 1.75; pole.castShadow = true; g.add(pole);
+
+  // Base plate
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.7, 0.7, 0.2, 12),
+    new THREE.MeshPhongMaterial({ color: 0x223344 })
+  );
+  base.position.y = 0.1; g.add(base);
+
+  // Glowing sphere
+  const sphereMat = new THREE.MeshPhongMaterial({
+    color: SAFE_COLOR.clone(), emissive: SAFE_COLOR.clone(),
+    emissiveIntensity: 0.6, transparent: true, opacity: 0.92,
+  });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 16), sphereMat);
+  sphere.position.y = 4.0;
+  sphere.userData.sensor = cfg;
+  sphere.castShadow = true;
+  g.add(sphere);
+
+  g.position.set(cfg.x, 0, cfg.z);
+  scene.add(g);
+
+  sensorMeshes.push(sphere);
+  const obj = { group: g, sphere, zone: cfg.zone, label: cfg.label, data: {} };
+  sensorObjects.push(obj);
+  return obj;
+}
+
+SENSOR_CONFIGS.forEach(makeSensor);
+
+function updateSensorColor(s, state) {
+  const col = state === 'SAFE' ? SAFE_COLOR : state === 'WARNING' ? WARN_COLOR : DANGER_COLOR;
+  s.sphere.material.color.copy(col);
+  s.sphere.material.emissive.copy(col);
+}
+
+/* ================================================================
+   6. ORBIT CONTROLS + KEYBOARD
+   ================================================================ */
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance   = 15;
+controls.maxDistance   = 130;
+controls.maxPolarAngle = Math.PI / 2 - 0.04;
+controls.screenSpacePanning = true;
+// Swap: left=pan, right=rotate (as per spec)
+controls.mouseButtons = {
+  LEFT:   THREE.MOUSE.PAN,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT:  THREE.MOUSE.ROTATE,
+};
+controls.target.set(0, 0, 0);
+
+// Keyboard
+const KEYS = {};
+document.addEventListener('keydown', e => { KEYS[e.key] = true; e.preventDefault && (e.key.startsWith('Arrow') || ['w','a','s','d'].includes(e.key)) && e.preventDefault(); });
+document.addEventListener('keyup',   e => { KEYS[e.key] = false; });
+
+function handleKeys() {
+  const spd = 0.55;
+  const fwd = new THREE.Vector3();
+  camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+  const rgt = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0,1,0));
+
+  if (KEYS['w'] || KEYS['ArrowUp'])    { camera.position.addScaledVector(fwd, spd);  controls.target.addScaledVector(fwd, spd); }
+  if (KEYS['s'] || KEYS['ArrowDown'])  { camera.position.addScaledVector(fwd,-spd);  controls.target.addScaledVector(fwd,-spd); }
+  if (KEYS['a'] || KEYS['ArrowLeft'])  { camera.position.addScaledVector(rgt,-spd);  controls.target.addScaledVector(rgt,-spd); }
+  if (KEYS['d'] || KEYS['ArrowRight']) { camera.position.addScaledVector(rgt, spd);  controls.target.addScaledVector(rgt, spd); }
+  if (KEYS['q']) { camera.position.y += spd; }
+  if (KEYS['e']) { camera.position.y = Math.max(5, camera.position.y - spd); }
+}
+
+/* ================================================================
+   7. RAYCASTER — CLICK ON SENSOR
+   ================================================================ */
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
+const tooltip   = document.getElementById('sensor-tooltip');
+let selectedSensor = null;
+
+renderer.domElement.addEventListener('click', e => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+  mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  const hits = raycaster.intersectObjects(sensorMeshes);
+  if (hits.length > 0) {
+    const cfg = hits[0].object.userData.sensor;
+    const zd  = zoneRiskData[cfg.zone] || {};
+    const sv  = sensorValues[cfg.zone] || {};
+
+    document.getElementById('tt-title').textContent = cfg.label;
+    document.getElementById('tt-zone').textContent  = `Zone ${cfg.zone}`;
+    document.getElementById('tt-risk').textContent  = zd.risk_score != null ? fmt3(zd.risk_score) : '—';
+    document.getElementById('tt-state').textContent = zd.risk_state || '—';
+    document.getElementById('tt-gas').textContent   = (sv.gas ?? '—') + ' ppm';
+    document.getElementById('tt-temp').textContent  = (sv.temperature ?? '—') + ' °C';
+
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
+    tooltip.style.top  = (e.clientY - rect.top  - 10) + 'px';
+    selectedSensor = cfg;
+  } else {
+    tooltip.style.display = 'none';
+    selectedSensor = null;
+  }
+});
+
+/* ================================================================
+   8. ALARM ANIMATION STATE
+   ================================================================ */
+let alarmActive = false;
+let alarmTick   = 0;
+const alarmBanner = document.getElementById('alarm-banner');
+
+function setAlarm(on) {
+  alarmActive = on;
+  alarmBanner.style.display = on ? 'block' : 'none';
+  document.getElementById('alarm-overlay').className = on ? 'active' : '';
+}
+
+function tickAlarm(dt) {
+  if (!alarmActive) {
+    Object.values(alarmLights).forEach(l => l.intensity = 0);
+    return;
+  }
+  alarmTick += dt * 2.5;
+  const pulse = (Math.sin(alarmTick) * 0.5 + 0.5) * 3.5;
+  // Only flash lights in DANGER zones
+  Object.entries(alarmLights).forEach(([z, l]) => {
+    l.intensity = (zoneRiskData[z]?.risk_state === 'DANGER') ? pulse : 0;
+  });
+}
+
+/* ================================================================
+   9. SENSOR CONTROL PANEL  (15 inputs)
+   ================================================================ */
+const SENSORS_DEF = [
+  { id:'temperature',    label:'Temperature',       unit:'°C',   min:10,  max:90,   step:0.5,  def:25  },
+  { id:'humidity',       label:'Humidity',           unit:'%',    min:20,  max:95,   step:1,    def:55  },
+  { id:'gas',            label:'Gas Conc.',          unit:'ppm',  min:0,   max:900,  step:5,    def:30  },
+  { id:'air_quality',    label:'Air Quality',        unit:'AQI',  min:10,  max:450,  step:5,    def:45  },
+  { id:'radiation',      label:'Radiation',          unit:'mSv',  min:0,   max:9,    step:0.05, def:0.1 },
+  { id:'vibration',      label:'Vibration',          unit:'g',    min:0,   max:9,    step:0.1,  def:0.5 },
+  { id:'machine_load',   label:'Machine Load',       unit:'%',    min:0,   max:100,  step:1,    def:50  },
+  { id:'noise',          label:'Noise Level',        unit:'dB',   min:30,  max:115,  step:1,    def:62  },
+  { id:'pressure',       label:'Pressure',           unit:'kPa',  min:98,  max:108,  step:0.1,  def:101 },
+  { id:'motion',         label:'Motion Detected',   unit:'',     toggle:true,        def:false  },
+  { id:'worker_density', label:'Worker Density',     unit:'/zone',min:0,   max:18,   step:0.5,  def:3   },
+  { id:'fatigue',        label:'Fatigue Level',      unit:'/10',  min:0,   max:9,    step:0.5,  def:2   },
+  { id:'forklift',       label:'Forklift Activity',  unit:'/10',  min:0,   max:9,    step:0.5,  def:1   },
+  { id:'door_state',     label:'Door Open',          unit:'',     toggle:true,        def:false  },
+  { id:'ventilation',    label:'Ventilation Eff.',   unit:'%',    min:0,   max:100,  step:1,    def:85  },
+];
+
+// Per-zone sensor values
+const sensorValues = { A:{}, B:{}, C:{}, D:{} };
+const ZONE_DEFAULTS = {
+  A:{ temperature:22, gas:25,  machine_load:30, noise:58,  worker_density:2 },
+  B:{ temperature:44, gas:120, machine_load:82, noise:88,  worker_density:8 },
+  C:{ temperature:30, gas:55,  machine_load:65, noise:72,  worker_density:6 },
+  D:{ temperature:21, gas:15,  machine_load:18, noise:44,  worker_density:1 },
+};
+['A','B','C','D'].forEach(z => {
+  SENSORS_DEF.forEach(s => {
+    sensorValues[z][s.id] = ZONE_DEFAULTS[z]?.[s.id] ?? s.def;
+  });
+});
+
+let activeZone = 'A';
+
+function buildPanel(zone) {
+  const scroll = document.getElementById('sensor-scroll');
+  scroll.innerHTML = '';
+  const vals = sensorValues[zone];
+
+  SENSORS_DEF.forEach(def => {
+    const val  = vals[def.id];
+    const item = document.createElement('div');
+    item.className = 'sensor-item';
+
+    if (def.toggle) {
+      item.innerHTML = `
+        <div class="si-toggle">
+          <span class="si-label">${def.label}</span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="s_${def.id}" ${val ? 'checked' : ''}
+              onchange="onToggle('${def.id}', this.checked)"/>
+            <span class="toggle-track"></span>
+          </label>
+        </div>`;
+    } else {
+      const norm = (val - def.min) / (def.max - def.min);
+      const col  = norm > 0.7 ? 'var(--danger)' : norm > 0.4 ? 'var(--warn)' : 'var(--cyan)';
+      item.innerHTML = `
+        <div class="si-row">
+          <span class="si-label">${def.label}</span>
+          <span class="si-value" id="sv_${def.id}">${Number(val).toFixed(def.step < 1 ? 1 : 0)} ${def.unit}</span>
+        </div>
+        <div class="si-bar"><div class="si-fill" id="sf_${def.id}"
+          style="width:${norm*100}%;background:${col}"></div></div>
+        <input type="range" class="slider" min="${def.min}" max="${def.max}" step="${def.step}"
+          value="${val}" id="ss_${def.id}"
+          oninput="onSlider('${def.id}',+this.value)"/>`;
+    }
+    scroll.appendChild(item);
+  });
+}
+
+function onSlider(id, val) {
+  sensorValues[activeZone][id] = val;
+  const def  = SENSORS_DEF.find(s => s.id === id);
+  const norm = (val - def.min) / (def.max - def.min);
+  const col  = norm > 0.7 ? 'var(--danger)' : norm > 0.4 ? 'var(--warn)' : 'var(--cyan)';
+  const sv   = document.getElementById('sv_' + id);
+  const sf   = document.getElementById('sf_' + id);
+  if (sv) sv.textContent = Number(val).toFixed(def.step < 1 ? 1 : 0) + ' ' + def.unit;
+  if (sf) { sf.style.width = norm * 100 + '%'; sf.style.background = col; }
+}
+
+function onToggle(id, checked) {
+  sensorValues[activeZone][id] = checked;
+}
+
+// Zone selector
+document.querySelectorAll('.zsel-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.zsel-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeZone = btn.dataset.z;
+    buildPanel(activeZone);
+    document.getElementById('ov-zone').textContent = activeZone;
+  });
+});
+
+buildPanel(activeZone);
+
+/* ================================================================
+   10. BACKEND POLLING + UI UPDATE
+   ================================================================ */
+const zoneRiskData = { A:{}, B:{}, C:{}, D:{} };
+
+async function pollBackend() {
+  const zone   = activeZone;
+  const values = sensorValues[zone];
+  const payload = { zone, ...values };
+
+  try {
+    const res = await fetch('/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    zoneRiskData[zone] = data;
+    applyRiskToUI(zone, data);
+  } catch(e) { /* offline — ignore */ }
+
+  // Also poll /status for all zones (for legend)
+  try {
+    const res2 = await fetch('/status');
+    const all  = await res2.json();
+    ['A','B','C','D'].forEach(z => {
+      if (all[z] && z !== zone) {
+        zoneRiskData[z] = all[z];
+        updateLegend(z, all[z]);
+      }
+    });
+    // Check any danger
+    const anyDanger = Object.values(zoneRiskData).some(d => d.risk_state === 'DANGER');
+    setAlarm(anyDanger);
+  } catch(e) {}
+}
+
+function applyRiskToUI(zone, data) {
+  const sc   = data.risk_score;
+  const st   = data.risk_state;
+  const col  = riskColor(sc);
+
+  // Panel meter
+  ['ctrl-score','ctrl-state','ctrl-bar'].forEach(id => {});
+  applyRiskUI(
+    document.getElementById('ctrl-score'),
+    document.getElementById('ctrl-state'),
+    document.getElementById('ctrl-bar'),
+    sc, st,
+  );
+
+  // Overlay
+  applyRiskUI(
+    document.getElementById('ov-score'),
+    document.getElementById('ov-state'),
+    null, sc, st,
+  );
+  document.getElementById('ov-env').textContent   = fmt3(data.risk_env);
+  document.getElementById('ov-amp').textContent   = data.amplification + '×';
+  document.getElementById('ov-trend').textContent = fmt3(data.temp_trend);
+
+  // Header chip
+  const chip = document.getElementById('hdr-status');
+  chip.className = 'status-chip ' + riskClass(st);
+  document.getElementById('hdr-status-text').textContent = 'SYSTEM ' + st;
+  setVentChip(document.getElementById('hdr-vent'), data.vent_on);
+
+  // Sensor colours for this zone
+  sensorObjects.filter(s => s.zone === zone).forEach(s => updateSensorColor(s, st));
+
+  // Legend
+  updateLegend(zone, data);
+
+  // Contributions
+  renderContributions(data.contributions || []);
+}
+
+function updateLegend(zone, data) {
+  const scoreEl = document.getElementById('leg-score-' + zone);
+  const tagEl   = document.getElementById('leg-tag-'   + zone);
+  const legEl   = document.getElementById('leg-' + zone);
+  if (!scoreEl) return;
+  const sc = data.risk_score ?? 0;
+  const st = data.risk_state ?? 'SAFE';
+  scoreEl.textContent = fmt3(sc);
+  scoreEl.style.color = riskColor(sc);
+  tagEl.innerHTML     = `<span class="tag ${riskClass(st)}">${st}</span>`;
+  legEl.style.borderColor = riskColor(sc);
+
+  // Sensor colours for this zone (auto-sim zones)
+  sensorObjects.filter(s => s.zone === zone).forEach(s => updateSensorColor(s, st));
+}
+
+function renderContributions(contribs) {
+  const list = document.getElementById('contrib-list');
+  if (!list || !contribs.length) return;
+  const top = contribs.slice(0, 7);
+  const max  = Math.max(...top.map(c => Math.abs(c.contribution)), 0.01);
+  list.innerHTML = top.map(c => `
+    <div class="contrib-row">
+      <span class="contrib-lbl">${c.label || c.sensor}</span>
+      <div class="contrib-bar">
+        <div class="contrib-fill" style="width:${Math.abs(c.contribution)/max*100}%;
+          background:${c.contribution < 0 ? 'var(--safe)' :
+            c.contribution > max*0.5 ? 'var(--danger)' :
+            c.contribution > max*0.25 ? 'var(--warn)' : 'var(--cyan)'}"></div>
+      </div>
+      <span class="contrib-val">${c.contribution > 0 ? '+' : ''}${c.contribution?.toFixed(3)}</span>
+    </div>`).join('');
+}
+
+// Poll every 1 second
+setInterval(pollBackend, 1000);
+pollBackend();
+
+/* ================================================================
+   11. ANIMATION LOOP
+   ================================================================ */
+const clock = new THREE.Clock();
+let t = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  t += dt;
+
+  handleKeys();
+  controls.update();
+
+  // Gentle worker idle sway
+  workers.forEach((w, i) => {
+    w.position.y = Math.sin(t * 1.2 + i * 0.9) * 0.04;
+    w.rotation.y += 0.001;
+  });
+
+  // Sensor sphere scale pulse
+  sensorObjects.forEach((s, i) => {
+    const sp = 0.95 + Math.sin(t * 2.5 + i * 0.7) * 0.05;
+    s.sphere.scale.setScalar(sp);
+  });
+
+  tickAlarm(dt);
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
